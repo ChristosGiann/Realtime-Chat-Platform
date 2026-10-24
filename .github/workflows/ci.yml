@@ -4,11 +4,14 @@ on:
   push:
     branches:
       - main
+      - dev
       - "feature/**"
+      - "codex/**"
 
   pull_request:
     branches:
       - main
+      - dev
 
   workflow_dispatch:
 
