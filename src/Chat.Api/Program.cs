@@ -1,20 +1,23 @@
 using Chat.Api.Infrastructure.Persistence;
+using Chat.Api.Identity;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var databaseConnectionString =
-    builder.Configuration.GetConnectionString("ChatDatabase")
-    ?? throw new InvalidOperationException(
-        "The ChatDatabase connection string is missing.");
-
 builder.Services.AddOpenApi();
 
-builder.Services.AddDbContext<ChatDbContext>(options =>
+builder.Services.AddDbContext<ChatDbContext>((services, options) =>
 {
-    options.UseNpgsql(databaseConnectionString);
+    var connectionString = services.GetRequiredService<IConfiguration>()
+        .GetConnectionString("ChatDatabase")
+        ?? throw new InvalidOperationException("The ChatDatabase connection string is missing.");
+    options.UseNpgsql(connectionString);
 });
+
+builder.Services.AddIdentityCore<ApplicationUser>(options =>
+    options.User.RequireUniqueEmail = true)
+    .AddEntityFrameworkStores<ChatDbContext>();
 
 builder.Services
     .AddHealthChecks()
