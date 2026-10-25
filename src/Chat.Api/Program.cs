@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Identity;
+using Chat.Api.Authentication;
 using Chat.Api.Infrastructure.Persistence;
 using Chat.Api.Identity;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -18,7 +20,10 @@ builder.Services.AddDbContext<ChatDbContext>((services, options) =>
 
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
     options.User.RequireUniqueEmail = true)
-    .AddEntityFrameworkStores<ChatDbContext>();
+    .AddEntityFrameworkStores<ChatDbContext>()
+    .AddSignInManager();
+
+builder.Services.AddBrowserSessions(builder.Environment.IsDevelopment());
 
 builder.Services
     .AddHealthChecks()
@@ -31,9 +36,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("Frontend", policy =>
     {
         policy
-            .WithOrigins("http://localhost:5173")
+            .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+                ?? (builder.Environment.IsDevelopment() ? ["http://localhost:5173"] : []))
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod().AllowCredentials();
     });
 });
 
@@ -45,6 +51,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("Frontend");
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 
 app.MapHealthChecks(
