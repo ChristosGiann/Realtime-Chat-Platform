@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
+builder.Services.AddControllers();
 
 builder.Services.AddDbContext<ChatDbContext>((services, options) =>
 {
@@ -44,6 +45,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("Frontend");
+app.MapControllers();
 
 app.MapHealthChecks(
     "/health/live",
