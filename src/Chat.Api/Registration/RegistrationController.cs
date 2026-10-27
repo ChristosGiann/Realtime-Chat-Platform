@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Chat.Api.Identity;
 using Chat.Api.Infrastructure.Persistence;
 using Chat.Api.Profiles;
@@ -14,6 +15,7 @@ public sealed class RegistrationController(
     UserManager<ApplicationUser> users,
     ChatDbContext db) : ControllerBase
 {
+    [AllowAnonymous]
     [HttpPost("register")]
     [ProducesResponseType<RegistrationResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]

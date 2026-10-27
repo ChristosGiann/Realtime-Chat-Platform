@@ -1,3 +1,4 @@
+using Chat.Api.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Chat.Api.Authentication;
 using Chat.Api.Infrastructure.Persistence;
@@ -24,6 +25,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     .AddSignInManager();
 
 builder.Services.AddBrowserSessions(builder.Environment.IsDevelopment());
+builder.Services.AddAuthorizationBaseline();
 
 builder.Services
     .AddHealthChecks()
@@ -47,7 +49,7 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.MapOpenApi().AllowAnonymous();
 }
 
 app.UseCors("Frontend");
@@ -60,7 +62,7 @@ app.MapHealthChecks(
     new HealthCheckOptions
     {
         Predicate = _ => false
-    });
+    }).AllowAnonymous();
 
 app.MapHealthChecks(
     "/health/ready",
@@ -68,7 +70,7 @@ app.MapHealthChecks(
     {
         Predicate = healthCheck =>
             healthCheck.Tags.Contains("ready")
-    });
+    }).AllowAnonymous();
 
 app.MapGet("/api/version", () =>
 {
@@ -78,7 +80,7 @@ app.MapGet("/api/version", () =>
         version = "0.1.0",
         environment = app.Environment.EnvironmentName
     });
-});
+}).AllowAnonymous();
 
 app.Run();
 
