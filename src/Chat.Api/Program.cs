@@ -1,20 +1,31 @@
+using Chat.Api.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Chat.Api.Authentication;
 using Chat.Api.Infrastructure.Persistence;
+using Chat.Api.Identity;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var databaseConnectionString =
-    builder.Configuration.GetConnectionString("ChatDatabase")
-    ?? throw new InvalidOperationException(
-        "The ChatDatabase connection string is missing.");
-
 builder.Services.AddOpenApi();
+builder.Services.AddControllers();
 
-builder.Services.AddDbContext<ChatDbContext>(options =>
+builder.Services.AddDbContext<ChatDbContext>((services, options) =>
 {
-    options.UseNpgsql(databaseConnectionString);
+    var connectionString = services.GetRequiredService<IConfiguration>()
+        .GetConnectionString("ChatDatabase")
+        ?? throw new InvalidOperationException("The ChatDatabase connection string is missing.");
+    options.UseNpgsql(connectionString);
 });
+
+builder.Services.AddIdentityCore<ApplicationUser>(options =>
+    options.User.RequireUniqueEmail = true)
+    .AddEntityFrameworkStores<ChatDbContext>()
+    .AddSignInManager();
+
+builder.Services.AddBrowserSessions(builder.Environment.IsDevelopment());
+builder.Services.AddAuthorizationBaseline();
 
 builder.Services
     .AddHealthChecks()
@@ -27,9 +38,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("Frontend", policy =>
     {
         policy
-            .WithOrigins("http://localhost:5173")
+            .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+                ?? (builder.Environment.IsDevelopment() ? ["http://localhost:5173"] : []))
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod().AllowCredentials();
     });
 });
 
@@ -37,17 +49,20 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.MapOpenApi().AllowAnonymous();
 }
 
 app.UseCors("Frontend");
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
 
 app.MapHealthChecks(
     "/health/live",
     new HealthCheckOptions
     {
         Predicate = _ => false
-    });
+    }).AllowAnonymous();
 
 app.MapHealthChecks(
     "/health/ready",
@@ -55,7 +70,7 @@ app.MapHealthChecks(
     {
         Predicate = healthCheck =>
             healthCheck.Tags.Contains("ready")
-    });
+    }).AllowAnonymous();
 
 app.MapGet("/api/version", () =>
 {
@@ -65,7 +80,7 @@ app.MapGet("/api/version", () =>
         version = "0.1.0",
         environment = app.Environment.EnvironmentName
     });
-});
+}).AllowAnonymous();
 
 app.Run();
 
