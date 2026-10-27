@@ -1,3 +1,4 @@
+using Chat.Api.Authorization;
 using Chat.Api.Identity;
 using Chat.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Antiforgery;
@@ -16,12 +17,15 @@ public sealed class SessionController(
     SignInManager<ApplicationUser> signIn,
     ChatDbContext db,
     IAntiforgery antiforgery,
-    RejectedLoginVerifier rejectedLogin) : ControllerBase
+    RejectedLoginVerifier rejectedLogin,
+    ICurrentUser currentUser) : ControllerBase
 {
+    [AllowAnonymous]
     [HttpGet("csrf")]
     public IActionResult Csrf() =>
         Ok(new { requestToken = antiforgery.GetAndStoreTokens(HttpContext).RequestToken });
 
+    [AllowAnonymous]
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest request)
     {
@@ -48,11 +52,13 @@ public sealed class SessionController(
         return NoContent();
     }
 
-    [Authorize]
+    [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
     [HttpGet("me")]
     public async Task<IActionResult> Me(CancellationToken cancellationToken)
     {
-        var user = await users.GetUserAsync(User);
+        var userId = currentUser.UserId;
+        var user = userId is null ? null : await db.Users.AsNoTracking()
+            .SingleOrDefaultAsync(user => user.Id == userId.Value, cancellationToken);
         if (user is null)
             return Problem(statusCode: 401, title: "Authentication required.");
 
@@ -62,7 +68,7 @@ public sealed class SessionController(
             profile?.DisplayName, profile?.Bio, profile?.AvatarUrl));
     }
 
-    [Authorize]
+    [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
