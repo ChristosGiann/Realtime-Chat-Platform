@@ -13,6 +13,7 @@ metadata είναι προστατευμένο από προεπιλογή. Τα
 - POST /api/auth/register
 - POST /api/auth/login
 - GET /api/auth/csrf
+- GET /api/profiles/{userId} (δημόσιο DTO προφίλ, issue #7)
 - /health/live, /health/ready
 - GET /api/version
 - OpenAPI μόνο στο Development, όπως ίσχυε ήδη.
