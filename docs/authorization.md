@@ -7,7 +7,7 @@
 metadata είναι προστατευμένο από προεπιλογή. Τα προστατευμένα endpoints επιστρέφουν
 401 ProblemDetails για anonymous πρόσβαση, χωρίς redirect.
 
-Τα /api/auth/me και /api/auth/logout χρησιμοποιούν ρητά την ονομασμένη πολιτική.
+Τα /api/auth/me, /api/auth/logout, PUT /api/profiles/me και GET /api/users χρησιμοποιούν ρητά την ονομασμένη πολιτική.
 Οι ακόλουθες εξαιρέσεις έχουν ρητό AllowAnonymous:
 
 - POST /api/auth/register
