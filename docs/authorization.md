@@ -7,12 +7,13 @@
 metadata είναι προστατευμένο από προεπιλογή. Τα προστατευμένα endpoints επιστρέφουν
 401 ProblemDetails για anonymous πρόσβαση, χωρίς redirect.
 
-Τα /api/auth/me και /api/auth/logout χρησιμοποιούν ρητά την ονομασμένη πολιτική.
+Τα /api/auth/me, /api/auth/logout, PUT /api/profiles/me και GET /api/users χρησιμοποιούν ρητά την ονομασμένη πολιτική.
 Οι ακόλουθες εξαιρέσεις έχουν ρητό AllowAnonymous:
 
 - POST /api/auth/register
 - POST /api/auth/login
 - GET /api/auth/csrf
+- GET /api/profiles/{userId} (δημόσιο DTO προφίλ, issue #7)
 - /health/live, /health/ready
 - GET /api/version
 - OpenAPI μόνο στο Development, όπως ίσχυε ήδη.
