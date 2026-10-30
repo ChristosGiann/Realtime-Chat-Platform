@@ -13,3 +13,9 @@ textarea { resize: vertical; min-height: 120px; }
 .error { color: #a32626; }
 .hint { font-size: .85rem; color: #536570; }
 .field p { margin: 0; font-size: .85rem; }
+.bio { white-space: pre-wrap; overflow-wrap: anywhere; }
+.search-form { display: flex; gap: 1rem; align-items: end; flex-wrap: wrap; }
+.search-form .field { flex: 1 1 240px; }
+.results { list-style: none; padding: 0; }
+.results li { padding: 1rem 0; border-bottom: 1px solid #d8e0e5; }
+.results a { font-weight: 650; }

@@ -33,5 +33,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     catch (cause) { if (!(cause instanceof ApiError && cause.status === 401)) throw cause }
     ++generation.current; setUser(null); setStatus('ready')
   }
-  return <AuthContext.Provider value={{ user, status, error, refresh, login, logout }}>{children}</AuthContext.Provider>
+  function updateProfile(profile: Pick<CurrentUser, 'displayName' | 'bio' | 'avatarUrl'> & { userId: string }) {
+    setUser(previous => previous?.id === profile.userId ? { ...previous, displayName: profile.displayName, bio: profile.bio, avatarUrl: profile.avatarUrl } : previous)
+  }
+  return <AuthContext.Provider value={{ user, status, error, refresh, login, logout, updateProfile }}>{children}</AuthContext.Provider>
 }
