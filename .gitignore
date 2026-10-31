@@ -489,3 +489,6 @@ $RECYCLE.BIN/
 frontend/node_modules/
 frontend/dist/
 frontend/.env.local
+# Browser test artifacts
+frontend/test-results/
+frontend/playwright-report/
