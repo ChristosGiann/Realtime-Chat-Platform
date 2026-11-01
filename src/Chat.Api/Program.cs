@@ -1,4 +1,5 @@
 using Chat.Api.Authorization;
+using Chat.Api.Conversations;
 using Microsoft.AspNetCore.Identity;
 using Chat.Api.Authentication;
 using Chat.Api.Infrastructure.Persistence;
@@ -26,6 +27,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 
 builder.Services.AddBrowserSessions(builder.Environment.IsDevelopment());
 builder.Services.AddAuthorizationBaseline();
+builder.Services.AddScoped<ConversationAuthorization>();
 
 builder.Services
     .AddHealthChecks()
