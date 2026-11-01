@@ -12,47 +12,35 @@ namespace Chat.Api.Conversations;
 [Route("api/conversations/{conversationId:guid}")]
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class ConversationMembershipController(ChatDbContext db, ICurrentUser currentUser, IAntiforgery antiforgery) : ControllerBase
+public sealed class ConversationMembershipController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery) : ControllerBase
 {
     [HttpPut("members/{userId:guid}")]
     public Task<IActionResult> Add(Guid conversationId, Guid userId, CancellationToken cancellationToken) =>
-        Change(conversationId, userId, MembershipChange.Add, cancellationToken);
+        Change(conversationId, userId, ConversationOperation.AddMember, cancellationToken);
 
     [HttpDelete("members/{userId:guid}")]
     public Task<IActionResult> Remove(Guid conversationId, Guid userId, CancellationToken cancellationToken) =>
-        Change(conversationId, userId, MembershipChange.Remove, cancellationToken);
+        Change(conversationId, userId, ConversationOperation.RemoveMember, cancellationToken);
 
     [HttpDelete("membership")]
     public Task<IActionResult> Leave(Guid conversationId, CancellationToken cancellationToken) =>
-        Change(conversationId, null, MembershipChange.Leave, cancellationToken);
+        Change(conversationId, null, ConversationOperation.Leave, cancellationToken);
 
-    private async Task<IActionResult> Change(Guid conversationId, Guid? targetId, MembershipChange operation, CancellationToken cancellationToken)
+    private async Task<IActionResult> Change(Guid conversationId, Guid? targetId, ConversationOperation operation, CancellationToken cancellationToken)
     {
         try { await antiforgery.ValidateRequestAsync(HttpContext); }
         catch (AntiforgeryValidationException) { return Problem(statusCode: 400, title: "Invalid CSRF token."); }
-        var actor = currentUser.UserId;
-        if (actor is null || !await db.Users.AnyAsync(x => x.Id == actor.Value, cancellationToken))
-            return Problem(statusCode: 401, title: "Authentication required.");
-        if (targetId == Guid.Empty) return Problem(statusCode: 400, title: "User ID must not be empty.");
-
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Serialize membership changes for this conversation before reading permissions or members.
-        var conversation = await db.Conversations.FromSqlInterpolated(
+        await db.Conversations.FromSqlInterpolated(
             $"SELECT * FROM conversations.\"Conversations\" WHERE \"Id\" = {conversationId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
-        if (conversation is null) return Missing();
-        var membership = await db.ConversationMembers.SingleOrDefaultAsync(
-            x => x.ConversationId == conversationId && x.UserId == actor.Value, cancellationToken);
-        if (membership is null) return Missing();
-        if (conversation.Type != ConversationType.Group)
-            return Problem(statusCode: 409, title: "Direct conversation membership cannot be changed.");
-        if (operation != MembershipChange.Leave && membership.Role != ConversationMemberRole.Owner)
-            return Problem(statusCode: 403, title: "Only the group owner can manage members.");
-
-        var target = operation == MembershipChange.Leave ? actor.Value : targetId!.Value;
+        var access = await authorization.CheckAsync(conversationId, operation, targetId, cancellationToken);
+        if (!access.Allowed) return Problem(statusCode: access.ErrorStatus, title: access.ErrorTitle);
+        var target = operation == ConversationOperation.Leave ? access.UserId!.Value : targetId!.Value;
         var member = await db.ConversationMembers.SingleOrDefaultAsync(
             x => x.ConversationId == conversationId && x.UserId == target, cancellationToken);
-        if (operation == MembershipChange.Add)
+        if (operation == ConversationOperation.AddMember)
         {
             if (member is not null) return NoContent();
             if (!await db.Users.AnyAsync(x => x.Id == target, cancellationToken))
@@ -62,8 +50,6 @@ public sealed class ConversationMembershipController(ChatDbContext db, ICurrentU
         else
         {
             if (member is null) return NoContent();
-            if (member.Role == ConversationMemberRole.Owner)
-                return Problem(statusCode: 409, title: "The group owner cannot leave or be removed.");
             db.ConversationMembers.Remove(member);
         }
         try
@@ -81,6 +67,4 @@ public sealed class ConversationMembershipController(ChatDbContext db, ICurrentU
         return NoContent();
     }
 
-    private ObjectResult Missing() => Problem(statusCode: 404, title: "Conversation not found.");
-    private enum MembershipChange { Add, Remove, Leave }
 }

@@ -50,4 +50,6 @@ paths, cross-conversation IDs, immutable Direct membership, unknown/empty target
 anonymous/CSRF και forced database failure με rollback και επόμενη επιτυχή αίτηση.
 
 Δεν προστίθενται invitations, blocking, notifications, messages ή ownership transfer.
-Η συγκέντρωση των authorization κανόνων σε reusable service ανήκει στο #29.
+Οι authorization κανόνες συγκεντρώνονται πλέον στο ConversationAuthorization του
+#29· βλ. [κανόνες εξουσιοδότησης](conversation-authorization.md). Το row lock και
+η transaction παραμένουν ευθύνη της mutation ροής.
