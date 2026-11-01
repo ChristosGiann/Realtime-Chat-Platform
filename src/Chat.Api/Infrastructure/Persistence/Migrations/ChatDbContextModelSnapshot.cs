@@ -23,6 +23,83 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Chat.Api.Conversations.Conversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<Guid?>("DirectUserHighId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DirectUserLowId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DirectUserHighId");
+
+                    b.HasIndex("DirectUserLowId", "DirectUserHighId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Conversations_DirectPair")
+                        .HasFilter("\"Type\" = 1");
+
+                    b.ToTable("Conversations", "conversations", t =>
+                        {
+                            t.HasCheckConstraint("CK_Conversations_CreatedAt", "isfinite(\"CreatedAt\")");
+
+                            t.HasCheckConstraint("CK_Conversations_Id", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_Conversations_Shape", "(\"Type\" = 1 AND \"Name\" IS NULL AND \"DirectUserLowId\" IS NOT NULL\n    AND \"DirectUserHighId\" IS NOT NULL AND \"DirectUserLowId\" < \"DirectUserHighId\")\nOR\n(\"Type\" = 2 AND \"Name\" IS NOT NULL AND \"Name\" ~ '[^[:space:]]'\n    AND \"DirectUserLowId\" IS NULL AND \"DirectUserHighId\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Conversations_Type", "\"Type\" IN (1, 2)");
+                        });
+                });
+
+            modelBuilder.Entity("Chat.Api.Conversations.ConversationMember", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("JoinedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ConversationId", "UserId");
+
+                    b.HasIndex("ConversationId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ConversationMembers_Owner")
+                        .HasFilter("\"Role\" = 2");
+
+                    b.HasIndex("UserId", "ConversationId");
+
+                    b.ToTable("ConversationMembers", "conversations", t =>
+                        {
+                            t.HasCheckConstraint("CK_ConversationMembers_JoinedAt", "isfinite(\"JoinedAt\")");
+
+                            t.HasCheckConstraint("CK_ConversationMembers_Role", "\"Role\" IN (1, 2)");
+                        });
+                });
+
             modelBuilder.Entity("Chat.Api.Identity.ApplicationUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -246,6 +323,36 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", "identity");
                 });
 
+            modelBuilder.Entity("Chat.Api.Conversations.Conversation", b =>
+                {
+                    b.HasOne("Chat.Api.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("DirectUserHighId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Chat.Api.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("DirectUserLowId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Chat.Api.Conversations.ConversationMember", b =>
+                {
+                    b.HasOne("Chat.Api.Conversations.Conversation", "Conversation")
+                        .WithMany("Members")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Chat.Api.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+                });
+
             modelBuilder.Entity("Chat.Api.Profiles.UserProfile", b =>
                 {
                     b.HasOne("Chat.Api.Identity.ApplicationUser", null)
@@ -304,6 +411,11 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Chat.Api.Conversations.Conversation", b =>
+                {
+                    b.Navigation("Members");
                 });
 #pragma warning restore 612, 618
         }
