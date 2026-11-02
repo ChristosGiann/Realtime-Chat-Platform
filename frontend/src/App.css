@@ -19,3 +19,10 @@ textarea { resize: vertical; min-height: 120px; }
 .results { list-style: none; padding: 0; }
 .results li { padding: 1rem 0; border-bottom: 1px solid #d8e0e5; }
 .results a { font-weight: 650; }
+.conversation-layout { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr); gap: 1rem; align-items: start; }
+.conversation-actions { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+.conversation-layout .panel { min-width: 0; padding: 1.25rem; }
+.conversation-layout .results li { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.conversation-list .results p { width: 100%; margin: 0; }
+.conversation-list [aria-current="page"] { text-decoration-thickness: 3px; }
+@media (max-width: 700px) { .conversation-layout { grid-template-columns: minmax(0, 1fr); } }
