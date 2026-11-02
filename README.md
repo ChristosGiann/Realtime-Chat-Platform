@@ -2,8 +2,10 @@
 
 Πλατφόρμα συνομιλίας με ASP.NET Core, PostgreSQL και React/TypeScript.
 Το Stage 1 περιλαμβάνει ταυτότητα, cookie συνεδρίες, προφίλ και αναζήτηση χρηστών.
+Το Stage 2 προσθέτει Direct/Group συνομιλίες, συμμετοχές, authorization και React flows.
 
 - [Εκκίνηση, έλεγχοι και περιορισμοί Stage 1](docs/stage1-verification.md)
+- [Επαλήθευση Stage 2 και παράδοση στο Stage 3](docs/stage2-verification.md)
 - [Συνεδρίες browser](docs/browser-sessions.md)
 - [Frontend εγγραφής/σύνδεσης](docs/auth-frontend.md)
 - [Frontend προφίλ/αναζήτησης](docs/profiles-frontend.md)
