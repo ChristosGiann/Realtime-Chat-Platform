@@ -6,6 +6,7 @@ const env = { ...process.env, ConnectionStrings__ChatDatabase: process.env.E2E_C
 for (const args of [
   ['tool', 'restore'],
   ['build', 'src/Chat.Api/Chat.Api.csproj', '--configuration', 'Release'],
+  ['ef', 'migrations', 'has-pending-model-changes', '--project', 'src/Chat.Api', '--configuration', 'Release', '--no-build'],
   ['ef', 'database', 'update', '--project', 'src/Chat.Api', '--configuration', 'Release', '--no-build'],
 ]) {
   const result = spawnSync('dotnet', args, { cwd, env, stdio: 'inherit' })

@@ -7,6 +7,7 @@ import { useRoute } from './navigation'
 import { PublicProfilePage } from './profiles/PublicProfilePage'
 import { EditProfilePage } from './profiles/EditProfilePage'
 import { UserSearchPage } from './profiles/UserSearchPage'
+import { ConversationsPage } from './conversations/ConversationsPage'
 import './App.css'
 function Screen() {
   const auth = useAuth()
@@ -26,7 +27,7 @@ function Screen() {
   return <>
     <header className="site-header"><a className="brand" href="#/app">Realtime Chat</a>
       <nav aria-label="Κύρια πλοήγηση">
-        {auth.user ? <><a href="#/profile">Το προφίλ μου</a><a href="#/users">Αναζήτηση</a><button onClick={logout} disabled={busy}>{busy ? 'Αποσύνδεση…' : 'Αποσύνδεση'}</button></>
+        {auth.user ? <><a href="#/conversations">Συνομιλίες</a><a href="#/profile">Το προφίλ μου</a><a href="#/users">Αναζήτηση</a><button onClick={logout} disabled={busy}>{busy ? 'Αποσύνδεση…' : 'Αποσύνδεση'}</button></>
           : <><a href="#/login">Σύνδεση</a><a href="#/register">Εγγραφή</a></>}
       </nav>
     </header>
@@ -39,6 +40,7 @@ function Screen() {
         : !auth.user ? <AuthForm key={route === '/register' ? 'register' : 'login'} register={route === '/register'} />
         : route === '/profile' ? <EditProfilePage key={auth.user.id} />
         : route === '/users' ? <UserSearchPage key={auth.user.id} />
+        : route === '/conversations' || route.startsWith('/conversations/') ? <ConversationsPage key={auth.user.id} selectedId={route.split('/')[2]} />
         : ['/app', '/', '/login', '/register'].includes(route)
           ? <section className="panel"><p className="eyebrow">Ο λογαριασμός σου</p><h1>Καλώς ήρθες, {auth.user.displayName ?? auth.user.userName}</h1>
             <p>Η σύνδεσή σου είναι ενεργή.</p><p>{auth.user.email}</p></section>
