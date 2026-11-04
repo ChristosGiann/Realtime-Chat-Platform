@@ -12,17 +12,20 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
     {
         builder.ToTable("Messages", "messages", table =>
         {
+            table.HasCheckConstraint("CK_Messages_ClientMessageId", "\"ClientMessageId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
             table.HasCheckConstraint("CK_Messages_Id", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid");
             table.HasCheckConstraint("CK_Messages_Body", """
                 length(btrim("Body", E' \t\n\r\f' || chr(11) || chr(133) || chr(160) || chr(5760)
                     || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197)
                     || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202)
                     || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288))) > 0
-                """);
+                """.ReplaceLineEndings("\n"));
             table.HasCheckConstraint("CK_Messages_CreatedAt", "isfinite(\"CreatedAt\")");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedNever();
+        builder.Property(x => x.ClientMessageId).ValueGeneratedNever();
+        builder.HasIndex(x => x.ClientMessageId).IsUnique().HasDatabaseName("UX_Messages_ClientMessageId");
         builder.Property(x => x.Body).HasMaxLength(Message.MaxBodyLength).IsRequired();
         // Insertion time, not transaction-start time before waiting for a conversation lock.
         builder.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone").HasDefaultValueSql("clock_timestamp()");

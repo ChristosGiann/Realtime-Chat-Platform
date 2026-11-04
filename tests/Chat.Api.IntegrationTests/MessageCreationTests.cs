@@ -11,7 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Chat.Api.IntegrationTests;
 
-public sealed class MessageCreationTests(SessionFixture fixture) : IClassFixture<SessionFixture>
+public sealed partial class MessageCreationTests(SessionFixture fixture) : IClassFixture<SessionFixture>
 {
     private HttpClient Client() => fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions
         { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
@@ -57,7 +57,7 @@ public sealed class MessageCreationTests(SessionFixture fixture) : IClassFixture
         client.DeleteAsync($"/api/conversations/{group}/membership");
 
     private static Task<HttpResponseMessage> Send(HttpClient client, Guid conversation, string body) =>
-        client.PostAsJsonAsync($"/api/conversations/{conversation}/messages", new { body });
+        client.PostAsJsonAsync($"/api/conversations/{conversation}/messages", new { body, clientMessageId = Guid.NewGuid() });
 
     [Theory]
     [InlineData(false)]
@@ -73,7 +73,7 @@ public sealed class MessageCreationTests(SessionFixture fixture) : IClassFixture
             var response = await Send(client, conversation, body);
             Assert.Equal(HttpStatusCode.Created, response.StatusCode); Assert.True(response.Headers.CacheControl?.NoStore);
             var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Equal(new[] { "body", "conversationId", "createdAt", "id", "senderId" }, json.EnumerateObject().Select(x => x.Name).Order());
+            Assert.Equal(new[] { "body", "clientMessageId", "conversationId", "createdAt", "id", "senderId" }, json.EnumerateObject().Select(x => x.Name).Order());
             var dto = json.Deserialize<MessageResponse>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             Assert.Equal(sender, dto.SenderId); Assert.Equal(body, dto.Body); Assert.Equal(DateTimeKind.Utc, dto.CreatedAt.Kind);
             using var scope = fixture.Factory.Services.CreateScope();
@@ -101,8 +101,8 @@ public sealed class MessageCreationTests(SessionFixture fixture) : IClassFixture
     {
         using var client = Client(); await Login(client); var conversation = await Group(client);
         await Problem(await Send(client, conversation, new string('x', 4001)), HttpStatusCode.BadRequest);
-        await Problem(await client.PostAsJsonAsync($"/api/conversations/{conversation}/messages", new { body = "forged", senderId = Guid.NewGuid() }), HttpStatusCode.BadRequest);
-        await Problem(await client.PostAsJsonAsync($"/api/conversations/{conversation}/messages", new { body = "forged", id = Guid.NewGuid(), createdAt = DateTime.UtcNow }), HttpStatusCode.BadRequest);
+        await Problem(await client.PostAsJsonAsync($"/api/conversations/{conversation}/messages", new { clientMessageId = Guid.NewGuid(), body = "forged", senderId = Guid.NewGuid() }), HttpStatusCode.BadRequest);
+        await Problem(await client.PostAsJsonAsync($"/api/conversations/{conversation}/messages", new { clientMessageId = Guid.NewGuid(), body = "forged", id = Guid.NewGuid(), createdAt = DateTime.UtcNow }), HttpStatusCode.BadRequest);
         await Problem(await client.PostAsJsonAsync($"/api/conversations/{conversation}/messages", new { }), HttpStatusCode.BadRequest);
         Assert.Equal(HttpStatusCode.Created, (await Send(client, conversation, new string('x', 4000))).StatusCode);
         using var scope = fixture.Factory.Services.CreateScope();
