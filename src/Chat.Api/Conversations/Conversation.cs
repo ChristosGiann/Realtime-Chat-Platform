@@ -21,5 +21,6 @@ public sealed class ConversationMember
     public Guid UserId { get; set; }
     public ConversationMemberRole Role { get; set; } = ConversationMemberRole.Member;
     public DateTime JoinedAt { get; set; }
+    public Guid? LastReadMessageId { get; set; }
     public Conversation Conversation { get; set; } = null!;
 }
