@@ -123,6 +123,25 @@ public sealed class MessagePersistenceTests(SessionFixture fixture) : IClassFixt
 public sealed class MessageMigrationTests
 {
     [Fact]
+    public async Task IdempotencyUpgradeBackfillsDistinctKeysWithoutChangingMessages()
+    {
+        await using var postgres = new PostgreSqlBuilder("postgres:18").Build(); await postgres.StartAsync();
+        await using var db = new ChatDbContext(new DbContextOptionsBuilder<ChatDbContext>().UseNpgsql(postgres.GetConnectionString()).Options);
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20261103161543_AddMessagePersistence");
+        var seed = await MessagePersistenceTests.Seed(db);
+        var first = Guid.NewGuid(); var second = Guid.NewGuid();
+        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO messages.\"Messages\" (\"Id\", \"ConversationId\", \"SenderId\", \"Body\") VALUES ({first}, {seed.Conversation}, {seed.User}, 'Legacy'), ({second}, {seed.Conversation}, {seed.User}, 'Legacy')");
+        await db.Database.MigrateAsync();
+        var rows = await db.Messages.AsNoTracking().ToListAsync();
+        Assert.Equal(2, rows.Count);
+        Assert.Contains(rows, x => x.Id == first); Assert.Contains(rows, x => x.Id == second);
+        Assert.All(rows, x => { Assert.NotEqual(Guid.Empty, x.ClientMessageId); Assert.Equal("Legacy", x.Body); });
+        Assert.Equal(2, rows.Select(x => x.ClientMessageId).Distinct().Count());
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync()); Assert.False(db.Database.HasPendingModelChanges());
+    }
+
+    [Fact]
     public async Task UpgradeAndDowngrade_PreserveStage2Data()
     {
         await using var postgres = new PostgreSqlBuilder("postgres:18").Build(); await postgres.StartAsync();

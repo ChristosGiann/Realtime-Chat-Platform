@@ -61,7 +61,7 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_Conversations_Id", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid");
 
-                            t.HasCheckConstraint("CK_Conversations_Shape", "(\"Type\" = 1 AND \"Name\" IS NULL AND \"DirectUserLowId\" IS NOT NULL\r\n    AND \"DirectUserHighId\" IS NOT NULL AND \"DirectUserLowId\" < \"DirectUserHighId\")\r\nOR\r\n(\"Type\" = 2 AND \"Name\" IS NOT NULL AND \"Name\" ~ '[^[:space:]]'\r\n    AND \"DirectUserLowId\" IS NULL AND \"DirectUserHighId\" IS NULL)");
+                            t.HasCheckConstraint("CK_Conversations_Shape", "(\"Type\" = 1 AND \"Name\" IS NULL AND \"DirectUserLowId\" IS NOT NULL\n    AND \"DirectUserHighId\" IS NOT NULL AND \"DirectUserLowId\" < \"DirectUserHighId\")\nOR\n(\"Type\" = 2 AND \"Name\" IS NOT NULL AND \"Name\" ~ '[^[:space:]]'\n    AND \"DirectUserLowId\" IS NULL AND \"DirectUserHighId\" IS NULL)");
 
                             t.HasCheckConstraint("CK_Conversations_Type", "\"Type\" IN (1, 2)");
                         });
@@ -180,6 +180,9 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
+                    b.Property<Guid>("ClientMessageId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ConversationId")
                         .HasColumnType("uuid");
 
@@ -193,6 +196,10 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ClientMessageId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Messages_ClientMessageId");
+
                     b.HasIndex("SenderId");
 
                     b.HasIndex("ConversationId", "CreatedAt", "Id")
@@ -202,6 +209,8 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                     b.ToTable("Messages", "messages", t =>
                         {
                             t.HasCheckConstraint("CK_Messages_Body", "length(btrim(\"Body\", E' \\t\\n\\r\\f' || chr(11) || chr(133) || chr(160) || chr(5760)\n    || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197)\n    || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202)\n    || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288))) > 0");
+
+                            t.HasCheckConstraint("CK_Messages_ClientMessageId", "\"ClientMessageId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
 
                             t.HasCheckConstraint("CK_Messages_CreatedAt", "isfinite(\"CreatedAt\")");
 

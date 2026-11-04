@@ -1,6 +1,6 @@
 # Durable αποστολή μηνυμάτων — #41
 
-POST /api/conversations/{conversationId}/messages με JSON { "body": "κείμενο" }
+POST /api/conversations/{conversationId}/messages με JSON { "clientMessageId": "UUID", "body": "κείμενο" }
 απαιτεί authenticated session και φρέσκο CSRF token. SenderId προκύπτει από το
 ICurrentUser μέσω ConversationAuthorization, ποτέ από τον client. Άγνωστα JSON
 πεδία (sender/id/timestamp κ.λπ.) απορρίπτονται με 400.
@@ -16,14 +16,12 @@ membership mutations και κατόπιν ελέγχει το νέο SendMessag
 conversation επιστρέφουν 404. Anonymous/deleted Identity user 401. CSRF/body errors 400.
 Ο έλεγχος και το write παραμένουν στην ίδια transaction μέχρι το commit.
 
-Μόνο μετά το επιτυχές commit επιστρέφεται 201 με id/conversationId/senderId/body/createdAt.
+Μόνο μετά το επιτυχές commit επιστρέφεται 201 με id/clientMessageId/conversationId/senderId/body/createdAt.
 CreatedAt προέρχεται από το UTC database insertion default. Δεν σειριοποιούνται
 Identity entities, emails ή εσωτερικά πεδία. No-store, χωρίς Location προς ανύπαρκτο GET.
 Αποτυχία της βάσης δεν μετατρέπεται σε επιτυχία και το disposal κάνει rollback.
 
-Το #41 δεν παρέχει retry idempotency: αν χαθεί η απάντηση μετά το commit, επανάληψη
-μπορεί να δημιουργήσει δεύτερο μήνυμα. Το #42 θα ορίσει client key και durable
-duplicate protection. Δεν προστίθενται history API, SignalR ή attachments.
+Το #42 προσθέτει ασφαλή retries: ίδια λογική αποστολή επιστρέφει 200 με το αρχικό μήνυμα, ενώ ασύμβατη επαναχρησιμοποίηση κλειδιού επιστρέφει 409. Δείτε το [συμβόλαιο idempotency](message-idempotency.md). Δεν προστίθενται history API, SignalR ή attachments.
 
 PostgreSQL/Testcontainers tests καλύπτουν Direct/Group send από τα επιτρεπόμενα μέλη,
 safe DTO και committed persistence, body limits/Unicode/NUL, spoofed fields,
