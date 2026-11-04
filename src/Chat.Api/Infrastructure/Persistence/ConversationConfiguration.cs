@@ -1,5 +1,6 @@
 using Chat.Api.Conversations;
 using Chat.Api.Identity;
+using Chat.Api.Messages;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -49,6 +50,8 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
         builder.HasOne(x => x.Conversation).WithMany(x => x.Members)
             .HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Message>().WithMany().HasForeignKey(x => new { x.ConversationId, x.LastReadMessageId })
+            .HasPrincipalKey(x => new { x.ConversationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.UserId, x.ConversationId });
         builder.HasIndex(x => x.ConversationId).IsUnique().HasFilter("\"Role\" = 2")
             .HasDatabaseName("UX_ConversationMembers_Owner");

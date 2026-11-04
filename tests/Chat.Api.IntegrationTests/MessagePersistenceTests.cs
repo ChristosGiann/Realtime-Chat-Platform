@@ -23,8 +23,9 @@ public sealed class MessagePersistenceTests(SessionFixture fixture) : IClassFixt
             Email = $"{id:N}@example.test", NormalizedEmail = $"{id:N}@example.test".ToUpperInvariant() });
         db.Profiles.Add(new UserProfile { UserId = id, DisplayName = "Sender" });
         var group = new Conversation { Type = ConversationType.Group, Name = "Messages" };
-        group.Members.Add(new ConversationMember { UserId = id, Role = ConversationMemberRole.Owner });
         db.Conversations.Add(group); await db.SaveChangesAsync();
+        // Seed only Stage 2 columns so historical migration tests do not use newer member fields.
+        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO conversations.\"ConversationMembers\" (\"ConversationId\", \"UserId\", \"Role\") VALUES ({group.Id}, {id}, 2)");
         return (id, group.Id);
     }
     private static async Task Reject(ChatDbContext db, string code)
@@ -152,7 +153,7 @@ public sealed class MessageMigrationTests
         db.Messages.Add(new Message { ConversationId = seed.Conversation, SenderId = seed.User, Body = "Upgrade" }); await db.SaveChangesAsync();
         await migrator.MigrateAsync(stage2); db.ChangeTracker.Clear();
         Assert.Equal(seed.Conversation, (await db.Conversations.SingleAsync()).Id);
-        Assert.Equal(seed.User, (await db.ConversationMembers.SingleAsync()).UserId);
+        Assert.Equal(seed.User, await db.ConversationMembers.Select(x => x.UserId).SingleAsync());
         Assert.Equal("Sender", (await db.Profiles.SingleAsync()).DisplayName);
         await db.Database.MigrateAsync(); Assert.Empty(await db.Messages.ToListAsync());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync()); Assert.False(db.Database.HasPendingModelChanges());
