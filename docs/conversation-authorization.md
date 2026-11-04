@@ -73,3 +73,7 @@ concurrency, rollback και αρνητικές διαδρομές.
 Δεν αλλάζει το schema και δεν απαιτείται migration. Production list/details,
 public-profile summaries, pagination, blocking, message-specific permissions και
 platform roles παραμένουν εκτός scope.
+
+Στο #41 προστίθεται ρητό SendMessage operation: επιτρέπεται σε Group Owner/Member
+και Direct Member. Η αποστολή το ελέγχει μετά το conversation row lock μέσα στην
+ίδια transaction με το message write. Οι υπόλοιποι κανόνες παραμένουν ως είχαν.
