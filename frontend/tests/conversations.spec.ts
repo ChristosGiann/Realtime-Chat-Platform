@@ -8,6 +8,8 @@ const profile = (userId: string, displayName: string) => ({ userId, displayName,
 const member = (userId: string, displayName: string, role = 'Member') => ({ userId, role, joinedAt: '2026-01-01T00:00:00Z', profile: profile(userId, displayName) })
 const summary = { id: group, type: 'Group', name: 'Η ομάδα μας', createdAt: '2026-01-01T00:00:00Z', myRole: 'Owner', memberCount: 2 }
 async function session(page: Page) {
+  await page.route('**/api/conversations/*/messages?*', route => route.fulfill({ json: { items: [], nextCursor: null } }))
+  await page.route('**/api/conversations/*/read-state', route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 0 } }))
   await page.route('**/api/auth/me', route => route.fulfill({ json: { id: owner, userName: 'alice', email: 'alice@example.test', displayName: 'Alice' } }))
   await page.route('**/api/auth/csrf', route => route.fulfill({ json: { requestToken: 'conversation-token' } }))
 }

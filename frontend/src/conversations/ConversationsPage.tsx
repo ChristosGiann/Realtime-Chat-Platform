@@ -6,6 +6,7 @@ import type { Conversation, Details } from '../api/conversations'
 import type { PublicProfile } from '../api/profiles'
 import { useAuth } from '../auth/context'
 import { UserPicker } from './UserPicker'
+import { MessagingPanel } from '../messages/MessagingPanel'
 
 const title = (conversation: Conversation) => conversation.name ?? 'Direct συνομιλία'
 
@@ -135,6 +136,7 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
         <UserPicker disabled={busy} excluded={details.members.map(x => x.userId)} onSelect={person => void change(() => conversationsApi.add(id, person.userId))} />
         <p className="hint">Ο ιδιοκτήτης δεν μπορεί να αποχωρήσει ή να αφαιρεθεί.</p></>}
       {details.type === 'Group' && details.myRole === 'Member' && <button disabled={busy} onClick={() => void change(() => conversationsApi.leave(id), true)}>Αποχώρηση από ομάδα</button>}
+      <MessagingPanel key={id} id={id} />
     </>}
   </section>
 }
