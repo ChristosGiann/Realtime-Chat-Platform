@@ -75,7 +75,7 @@ jobs:
         run: npm run test:ui
 
   stage1-e2e:
-    name: Stage 1 and 2 browser API and PostgreSQL
+    name: Stage 1–3 browser API and PostgreSQL
     runs-on: ubuntu-latest
     services:
       postgres:

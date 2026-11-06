@@ -1,4 +1,5 @@
 using Chat.Api.Conversations;
+using Chat.Api.Messages;
 using Chat.Api.Identity;
 using Chat.Api.Profiles;
 using Microsoft.AspNetCore.Identity;
@@ -10,6 +11,7 @@ namespace Chat.Api.Infrastructure.Persistence;
 public sealed class ChatDbContext(DbContextOptions<ChatDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options)
 {
+    public DbSet<Message> Messages => Set<Message>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
     public DbSet<UserProfile> Profiles => Set<UserProfile>();
@@ -20,6 +22,7 @@ public sealed class ChatDbContext(DbContextOptions<ChatDbContext> options)
         builder.HasDefaultSchema("identity");
         builder.ApplyConfiguration(new ConversationConfiguration());
         builder.ApplyConfiguration(new ConversationMemberConfiguration());
+        builder.ApplyConfiguration(new MessageConfiguration());
         builder.Entity<ApplicationUser>(user =>
         {
             user.Property(x => x.Email).IsRequired();

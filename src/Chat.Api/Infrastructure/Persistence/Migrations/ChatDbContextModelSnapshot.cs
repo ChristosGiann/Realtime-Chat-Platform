@@ -61,7 +61,7 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_Conversations_Id", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid");
 
-                            t.HasCheckConstraint("CK_Conversations_Shape", "(\"Type\" = 1 AND \"Name\" IS NULL AND \"DirectUserLowId\" IS NOT NULL\n    AND \"DirectUserHighId\" IS NOT NULL AND \"DirectUserLowId\" < \"DirectUserHighId\")\nOR\n(\"Type\" = 2 AND \"Name\" IS NOT NULL AND \"Name\" ~ '[^[:space:]]'\n    AND \"DirectUserLowId\" IS NULL AND \"DirectUserHighId\" IS NULL)");
+                            t.HasCheckConstraint("CK_Conversations_Shape", "(\"Type\" = 1 AND \"Name\" IS NULL AND \"DirectUserLowId\" IS NOT NULL\r\n    AND \"DirectUserHighId\" IS NOT NULL AND \"DirectUserLowId\" < \"DirectUserHighId\")\r\nOR\r\n(\"Type\" = 2 AND \"Name\" IS NOT NULL AND \"Name\" ~ '[^[:space:]]'\r\n    AND \"DirectUserLowId\" IS NULL AND \"DirectUserHighId\" IS NULL)");
 
                             t.HasCheckConstraint("CK_Conversations_Type", "\"Type\" IN (1, 2)");
                         });
@@ -80,6 +80,9 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<Guid?>("LastReadMessageId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Role")
                         .HasColumnType("integer");
 
@@ -89,6 +92,8 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_ConversationMembers_Owner")
                         .HasFilter("\"Role\" = 2");
+
+                    b.HasIndex("ConversationId", "LastReadMessageId");
 
                     b.HasIndex("UserId", "ConversationId");
 
@@ -168,6 +173,54 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("UserNameIndex");
 
                     b.ToTable("AspNetUsers", "identity");
+                });
+
+            modelBuilder.Entity("Chat.Api.Messages.Message", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("ClientMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("clock_timestamp()");
+
+                    b.Property<Guid>("SenderId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientMessageId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Messages_ClientMessageId");
+
+                    b.HasIndex("SenderId");
+
+                    b.HasIndex("ConversationId", "CreatedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_Messages_ConversationHistory");
+
+                    b.ToTable("Messages", "messages", t =>
+                        {
+                            t.HasCheckConstraint("CK_Messages_Body", "length(btrim(\"Body\", E' \\t\\n\\r\\f' || chr(11) || chr(133) || chr(160) || chr(5760)\n    || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196) || chr(8197)\n    || chr(8198) || chr(8199) || chr(8200) || chr(8201) || chr(8202)\n    || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288))) > 0");
+
+                            t.HasCheckConstraint("CK_Messages_ClientMessageId", "\"ClientMessageId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("CK_Messages_CreatedAt", "isfinite(\"CreatedAt\")");
+
+                            t.HasCheckConstraint("CK_Messages_Id", "\"Id\" <> '00000000-0000-0000-0000-000000000000'::uuid");
+                        });
                 });
 
             modelBuilder.Entity("Chat.Api.Profiles.UserProfile", b =>
@@ -350,7 +403,28 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Chat.Api.Messages.Message", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId", "LastReadMessageId")
+                        .HasPrincipalKey("ConversationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("Chat.Api.Messages.Message", b =>
+                {
+                    b.HasOne("Chat.Api.Conversations.Conversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Chat.Api.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("SenderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Chat.Api.Profiles.UserProfile", b =>

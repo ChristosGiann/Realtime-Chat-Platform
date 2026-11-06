@@ -25,4 +25,10 @@ textarea { resize: vertical; min-height: 120px; }
 .conversation-layout .results li { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
 .conversation-list .results p { width: 100%; margin: 0; }
 .conversation-list [aria-current="page"] { text-decoration-thickness: 3px; }
+.messaging-panel { border-top: 1px solid #d8e0e5; margin-top: 1.5rem; padding-top: 1rem; }
+.messaging-panel button { margin: .4rem .6rem .4rem 0; }
+.message-list { list-style: none; padding: 0; }
+.message-list li { padding: .8rem; margin: .6rem 0; border-radius: 8px; background: #f1f5f8; }
+.message-list time { font-size: .8rem; color: #536570; }
+.message-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .conversation-layout { grid-template-columns: minmax(0, 1fr); } }

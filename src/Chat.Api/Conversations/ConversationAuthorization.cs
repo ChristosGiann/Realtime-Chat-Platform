@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Chat.Api.Conversations;
 
-public enum ConversationOperation { Read, AddMember, RemoveMember, Leave }
+public enum ConversationOperation { Read, AddMember, RemoveMember, Leave, SendMessage }
 
 public sealed record ConversationAccess(Guid? UserId, int? ErrorStatus = null, string? ErrorTitle = null)
 {
@@ -37,7 +37,7 @@ public sealed class ConversationAuthorization(ChatDbContext db, ICurrentUser cur
             .Select(x => new { x.Type, Role = x.Members.Where(m => m.UserId == actor.Value).Select(m => m.Role).Single() })
             .SingleOrDefaultAsync(cancellationToken);
         if (conversation is null) return new(actor, 404, "Conversation not found.");
-        if (operation == ConversationOperation.Read) return new(actor);
+        if (operation is ConversationOperation.Read or ConversationOperation.SendMessage) return new(actor);
         if (conversation.Type != ConversationType.Group)
             return new(actor, 409, "Direct conversation membership cannot be changed.");
         if (operation == ConversationOperation.Leave)
