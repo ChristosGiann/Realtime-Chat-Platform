@@ -1,6 +1,7 @@
 using Chat.Api.Authorization;
 using Chat.Api.Conversations;
 using Chat.Api.Infrastructure.Persistence;
+using Chat.Api.Realtime;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -13,7 +14,8 @@ namespace Chat.Api.Messages;
 [Route("api/conversations/{conversationId:guid}/messages")]
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class MessagesController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery) : ControllerBase
+public sealed class MessagesController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery,
+    IMessageBroadcaster broadcaster, ILogger<MessagesController> logger) : ControllerBase
 {
     [HttpPost]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status201Created)]
@@ -50,8 +52,18 @@ public sealed class MessagesController(ChatDbContext db, ConversationAuthorizati
             return KeyConflict();
         }
         await transaction.CommitAsync(cancellationToken);
-        return StatusCode(StatusCodes.Status201Created,
-            ToResponse(message));
+        var response = ToResponse(message);
+        // The durable write already succeeded. A delivery failure must not turn it into a failed send.
+        try
+        {
+            using var deliveryTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await broadcaster.MessageCreatedAsync(response, deliveryTimeout.Token).WaitAsync(deliveryTimeout.Token);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "SignalR delivery failed for committed message {MessageId}.", message.Id);
+        }
+        return StatusCode(StatusCodes.Status201Created, response);
     }
 
     private ObjectResult KeyConflict() => Problem(statusCode: 409, title: "Client message identifier is already bound to another request.");

@@ -10,6 +10,7 @@
 - [Επαλήθευση Stage 3 και παράδοση στο Stage 4](docs/stage3-verification.md)
 - [Authenticated SignalR infrastructure](docs/signalr-infrastructure.md)
 - [Εξουσιοδοτημένες SignalR subscriptions](docs/signalr-subscriptions.md)
+- [SignalR events μετά το commit](docs/signalr-message-events.md)
 - [Συνεδρίες browser](docs/browser-sessions.md)
 - [Frontend εγγραφής/σύνδεσης](docs/auth-frontend.md)
 - [Frontend προφίλ/αναζήτησης](docs/profiles-frontend.md)
