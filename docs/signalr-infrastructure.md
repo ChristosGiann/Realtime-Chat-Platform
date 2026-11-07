@@ -1,7 +1,8 @@
 # Authenticated SignalR infrastructure — #60
 
 Endpoint: `/hubs/chat`, negotiation: `POST /hubs/chat/negotiate?negotiateVersion=1`.
-Το hub δεν έχει business methods, groups, subscriptions, broadcasts ή persistence.
+Το #60 εισήγαγε το hub χωρίς business methods, groups, subscriptions, broadcasts ή persistence.
+Η επόμενη επέκταση περιγράφεται στις [subscriptions του #61](signalr-subscriptions.md).
 Η PostgreSQL παραμένει source of truth και το durable REST send δεν αλλάζει.
 
 Χρησιμοποιούνται αποκλειστικά τα υπάρχοντα Identity application cookies: HttpOnly,

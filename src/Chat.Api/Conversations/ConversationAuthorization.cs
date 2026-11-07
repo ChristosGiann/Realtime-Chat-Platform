@@ -15,9 +15,11 @@ public sealed record ConversationAccess(Guid? UserId, int? ErrorStatus = null, s
 public sealed class ConversationAuthorization(ChatDbContext db, ICurrentUser currentUser)
 {
     // Compose protected projections on this query so membership is checked in the same SQL read.
-    public IQueryable<Conversation> ReadableConversations()
+    public IQueryable<Conversation> ReadableConversations() => ReadableConversationsFor(currentUser.UserId);
+
+    // Only server-derived identities: REST uses ICurrentUser, hubs use their authenticated principal.
+    public IQueryable<Conversation> ReadableConversationsFor(Guid? userId)
     {
-        var userId = currentUser.UserId;
         if (userId is null) return db.Conversations.AsNoTracking().Where(_ => false);
         var actor = userId.Value;
         return db.Conversations.AsNoTracking().Where(c =>
