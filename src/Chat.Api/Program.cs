@@ -1,5 +1,6 @@
 using Chat.Api.Authorization;
 using Chat.Api.Conversations;
+using Chat.Api.Realtime;
 using Microsoft.AspNetCore.Identity;
 using Chat.Api.Authentication;
 using Chat.Api.Infrastructure.Persistence;
@@ -11,6 +12,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
+builder.Services.AddSignalR(options => options.EnableDetailedErrors = false);
+builder.Services.AddScoped<ChatSessionValidator>();
 
 builder.Services.AddDbContext<ChatDbContext>((services, options) =>
 {
@@ -35,13 +38,14 @@ builder.Services
         name: "postgresql",
         tags: ["ready"]);
 
-builder.Services.AddCors(options =>
+builder.Services.AddSingleton<ChatOrigins>();
+builder.Services.AddCors();
+builder.Services.AddOptions<Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions>().Configure<ChatOrigins>((options, origins) =>
 {
     options.AddPolicy("Frontend", policy =>
     {
         policy
-            .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-                ?? (builder.Environment.IsDevelopment() ? ["http://localhost:5173"] : []))
+            .WithOrigins(origins.AllowedOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod().AllowCredentials();
     });
@@ -57,7 +61,14 @@ if (app.Environment.IsDevelopment())
 app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseWhen(context => context.Request.Path.StartsWithSegments(ChatHub.Endpoint),
+    branch => branch.UseMiddleware<ChatConnectionSecurity>());
 app.MapControllers();
+app.MapHub<ChatHub>(ChatHub.Endpoint, options =>
+{
+    options.CloseOnAuthenticationExpiration = true;
+    options.AllowStatefulReconnects = false;
+});
 
 app.MapHealthChecks(
     "/health/live",
