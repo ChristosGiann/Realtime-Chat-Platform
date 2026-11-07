@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { Page, WebSocketRoute } from '@playwright/test'
 
 const owner = '11111111-1111-1111-1111-111111111111'
 const group = '44444444-4444-4444-4444-444444444444'
@@ -16,6 +16,52 @@ async function setup(page: Page) {
   await page.route(`**/api/conversations/${group}/read-state`, route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 2 } }))
 }
 const panel = (page: Page) => page.getByRole('region', { name: 'Μηνύματα συνομιλίας' })
+
+async function liveSocket(page: Page) {
+  let socket: WebSocketRoute
+  await page.route('**/hubs/chat/negotiate?*', route => route.fulfill({ json: {
+    negotiateVersion: 1, connectionId: 'test-connection', connectionToken: 'test-token',
+    availableTransports: [{ transport: 'WebSockets', transferFormats: ['Text'] }],
+  } }))
+  await page.routeWebSocket('**/hubs/chat?*', ws => {
+    socket = ws
+    ws.onMessage(data => {
+      for (const raw of data.toString().split('\u001e').filter(Boolean)) {
+        const frame = JSON.parse(raw)
+        if (frame.protocol) ws.send('{}\u001e')
+        else if (frame.type === 1) ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId }) + '\u001e')
+      }
+    })
+  })
+  return {
+    emit: (value: unknown) => socket.send(JSON.stringify({ type: 1, target: 'MessageCreated', arguments: [value] }) + '\u001e'),
+    close: () => socket.close(),
+  }
+}
+
+test('live events reconcile with REST response and reject other conversations', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.route(`**/api/conversations/${group}/messages`, async route => {
+    const draft = route.request().postDataJSON()
+    const saved = { ...latest, ...draft }
+    socket.emit(saved); socket.emit(saved)
+    await route.fulfill({ status: 201, json: saved })
+  })
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.getByLabel('Νέο μήνυμα', { exact: true }).fill('Live sender')
+  await panel(page).getByRole('button', { name: 'Αποστολή', exact: true }).click()
+  await expect(page.getByLabel('Νέο μήνυμα', { exact: true })).toHaveValue('')
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(1)
+  socket.emit({ ...older, conversationId: 'another-conversation' })
+  socket.emit({ ...older, body: '<img src=x onerror=alert(1)>' })
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(2)
+  await expect(panel(page).getByText('<img src=x onerror=alert(1)>', { exact: true })).toBeVisible()
+  await expect(panel(page).locator('img')).toHaveCount(0)
+  socket.close()
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Χωρίς ζωντανή σύνδεση')
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(2)
+})
 
 test('history is safe text, older pages deduplicate and explicit read uses loaded anchor', async ({ page }, testInfo) => {
   await setup(page)

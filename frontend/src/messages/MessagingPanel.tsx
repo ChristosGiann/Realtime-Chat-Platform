@@ -4,6 +4,8 @@ import { ApiError } from '../api/client'
 import { messagesApi, messagingError } from '../api/messages'
 import type { HistoryMessage, ReadState, SendRequest } from '../api/messages'
 import { useAuth } from '../auth/context'
+import { liveConversation } from './liveConversation'
+import type { LiveStatus } from './liveConversation'
 
 // Preserve PostgreSQL microseconds; JavaScript Date would truncate timestamp ties to milliseconds.
 const timeKey = (value: string) => value.slice(0, 19) + (value.includes('.') ? value.split('.')[1].replace('Z', '') : '').padEnd(7, '0')
@@ -28,6 +30,7 @@ export function MessagingPanel({ id }: { id: string }) {
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState('')
   const [sendError, setSendError] = useState('')
+  const [live, setLive] = useState<LiveStatus>('connecting')
   const active = useRef<AbortController | null>(null)
   const alive = useRef(false)
   const mutation = useRef(false)
@@ -43,11 +46,35 @@ export function MessagingPanel({ id }: { id: string }) {
     const controller = new AbortController(); active.current = controller
     void Promise.all([messagesApi.history(id, null, controller.signal), messagesApi.readState(id, controller.signal)])
       .then(([page, state]) => {
-        if (!controller.signal.aborted) { setItems(mergeMessages(page.items)); setNext(page.nextCursor); setRead(state); setReadTarget(page.items[0]?.id ?? null) }
+        if (!controller.signal.aborted) { setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state); setReadTarget(page.items[0]?.id ?? null) }
       }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => { alive.current = false; controller.abort(); active.current?.abort() }
   }, [id])
+  useEffect(() => {
+    if (unavailable) return
+    const controller = new AbortController()
+    const stop = liveConversation(id, {
+      status: setLive,
+      message: message => {
+        setItems(previous => mergeMessages([...previous, { ...message, sender: {
+          userId: message.senderId, displayName: message.senderId === user?.id ? user.displayName ?? user.userName : null, avatarUrl: null,
+        } }]))
+        void messagesApi.readState(id, controller.signal).then(state => {
+          if (!controller.signal.aborted) setRead(state)
+        }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
+      },
+      subscribed: async () => {
+        // Fetch after Subscribe closes the initial history/connection gap. Events merge by durable ID.
+        const [page, state] = await Promise.all([messagesApi.history(id, null, controller.signal), messagesApi.readState(id, controller.signal)])
+        if (!controller.signal.aborted) {
+          setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state)
+          setReadTarget(page.items[0]?.id ?? null)
+        }
+      },
+    })
+    return () => { controller.abort(); stop() }
+  }, [id, unavailable, user?.id, user?.displayName, user?.userName])
   async function load(older = false) {
     if (mutation.current) return
     active.current?.abort(); const controller = new AbortController(); active.current = controller
@@ -55,7 +82,7 @@ export function MessagingPanel({ id }: { id: string }) {
     try {
       const [page, state] = await Promise.all([messagesApi.history(id, older ? next : null, controller.signal), messagesApi.readState(id, controller.signal)])
       if (controller.signal.aborted) return
-      setItems(previous => mergeMessages(older ? [...previous, ...page.items] : page.items)); setNext(page.nextCursor); setRead(state); setUnavailable(false)
+      setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state); setUnavailable(false)
       if (!older) setReadTarget(page.items[0]?.id ?? null)
     } catch (cause) { if (!controller.signal.aborted) fail(cause) }
     finally { if (!controller.signal.aborted) setLoading(false) }
@@ -86,7 +113,7 @@ export function MessagingPanel({ id }: { id: string }) {
     finally { mutation.current = false; if (alive.current) setReading(false) }
   }
   return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><h3>Μηνύματα</h3>
-    <p className="hint">Τα νέα μηνύματα εμφανίζονται με ανανέωση.</p>
+    <p role="status" aria-label="Κατάσταση live σύνδεσης">{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p>
     <button disabled={busy} onClick={() => void load()}>Ανανέωση μηνυμάτων</button>
     {loading && <p role="status">Φόρτωση μηνυμάτων…</p>}
     {error && <p role="alert">{error}</p>}

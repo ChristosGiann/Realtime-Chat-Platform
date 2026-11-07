@@ -18,7 +18,7 @@ export class ApiError extends Error {
 export function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : 'Δεν ήταν δυνατή η επικοινωνία με τον server. Δοκίμασε ξανά.'
 }
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5080').replace(/\/$/, '')
+export const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5080').replace(/\/$/, '')
 export async function request<T>(path: string, init: RequestInit = {}, protectedRequest = false): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { ...init, credentials: 'include', cache: 'no-store' })
   if (!response.ok) {
