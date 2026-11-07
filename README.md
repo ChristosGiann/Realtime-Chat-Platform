@@ -19,3 +19,4 @@
 
 Κάθε issue υλοποιείται σε ξεχωριστό branch από τη dev. Η main ενημερώνεται με
 ξεχωριστή εντολή, μέσω PR. Δεν διαγράφονται dev/main.
+- [Εγγυήσεις ανάκλησης subscriptions](docs/signalr-revocation.md)

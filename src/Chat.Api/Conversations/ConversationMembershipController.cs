@@ -1,5 +1,6 @@
 using Chat.Api.Authorization;
 using Chat.Api.Infrastructure.Persistence;
+using Chat.Api.Realtime;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,7 +13,7 @@ namespace Chat.Api.Conversations;
 [Route("api/conversations/{conversationId:guid}")]
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class ConversationMembershipController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery) : ControllerBase
+public sealed class ConversationMembershipController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery, ConversationConnections connections) : ControllerBase
 {
     [HttpPut("members/{userId:guid}")]
     public Task<IActionResult> Add(Guid conversationId, Guid userId, CancellationToken cancellationToken) =>
@@ -55,6 +56,9 @@ public sealed class ConversationMembershipController(ChatDbContext db, Conversat
         try
         {
             await db.SaveChangesAsync(cancellationToken);
+            // Fail closed before releasing the row lock: a later broadcast cannot overtake revocation.
+            if (operation != ConversationOperation.AddMember)
+                await connections.Revoke(conversationId, target, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException
