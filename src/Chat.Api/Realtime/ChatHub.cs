@@ -8,14 +8,21 @@ using Microsoft.EntityFrameworkCore;
 namespace Chat.Api.Realtime;
 
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
-public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, ConversationAuthorization authorization) : Hub
+public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, ConversationAuthorization authorization, ConversationConnections connections) : Hub
 {
     public const string Endpoint = "/hubs/chat";
 
     public override async Task OnConnectedAsync()
     {
         if (!await sessions.IsValidAsync(Context.User)) { Context.Abort(); return; }
+        connections.Connected(Context.ConnectionId, sessions.GetUserId(Context.User)!.Value, Context.Abort);
         await base.OnConnectedAsync();
+    }
+
+    public override Task OnDisconnectedAsync(Exception? exception)
+    {
+        connections.Disconnected(Context.ConnectionId);
+        return base.OnDisconnectedAsync(exception);
     }
 
     public async Task Subscribe(Guid conversationId)
@@ -29,7 +36,7 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
             throw new HubException("Conversation not available.");
         try
         {
-            await Groups.AddToGroupAsync(Context.ConnectionId, ConversationGroup.Name(conversationId), Context.ConnectionAborted);
+            await connections.Subscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
             await transaction.CommitAsync(Context.ConnectionAborted);
         }
         catch { Context.Abort(); throw; }
@@ -40,7 +47,7 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         await ValidActor();
         if (conversationId == Guid.Empty) throw new HubException("Conversation not available.");
         // Removal affects only this connection, and is safe even after membership was removed.
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, ConversationGroup.Name(conversationId), Context.ConnectionAborted);
+        await connections.Unsubscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
     }
 
     private async Task<Guid> ValidActor()

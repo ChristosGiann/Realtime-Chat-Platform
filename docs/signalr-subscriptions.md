@@ -24,6 +24,7 @@ server-side probes και barriers για να αποδείξουν πραγμα
 owner/member/outsider, actor spoofing, επαναλήψεις, unsubscribe, reconnect χωρίς
 αυτόματη επανένταξη, concurrent removal και deleted Identity σε ανοιχτό socket.
 
-Ανάκληση ήδη υπάρχουσας subscription μετά από membership αλλαγή παραμένει στο #63.
+Ανάκληση ήδη υπάρχουσας subscription μετά από membership αλλαγή καλύπτεται στο
+[#63](signalr-revocation.md).
 Το #62 προσθέτει post-commit broadcasts. Live frontend/resync/E2E ανήκουν στα
 #64–#66. Η main δεν επηρεάζεται από το παρόν branch.

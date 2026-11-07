@@ -26,10 +26,9 @@ Crash μεταξύ commit και event, αποσύνδεση ή transport failur
 event. Διαφορετικές ταυτόχρονες αποστολές μπορεί να εκπέμπονται εκτός commit order.
 Η durable σειρά παραμένει CreatedAt/Id και η ανάκτηση γίνεται από REST (#65).
 
-**Εκκρεμότητα πριν από πλήρη real-time rollout:** η ανάκληση ήδη ενεργού group
-μετά από membership removal παραμένει στο #63. Το #62 εκπέμπει μόνο στα groups
-του #61, δεν υλοποιεί revocation. Presence, receipts, Redis/backplane και live UI
-παραμένουν στα επόμενα scopes. Η main δεν αλλάζει.
+Η ανάκληση ήδη ενεργού group μετά από membership removal υλοποιείται στο #63:
+δείτε [τη σειρά locks και τις εγγυήσεις ανάκλησης](signalr-revocation.md).
+Presence, receipts, Redis/backplane και live UI παραμένουν στα επόμενα scopes.
 
 Τα PostgreSQL/SignalR tests ελέγχουν Direct/Group delivery σε sender/member,
 απομόνωση συνομιλιών, unsubscribe, concurrent idempotent sends, μηδενικά events

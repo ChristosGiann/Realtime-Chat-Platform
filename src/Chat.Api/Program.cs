@@ -15,6 +15,7 @@ builder.Services.AddControllers();
 builder.Services.AddSignalR(options => options.EnableDetailedErrors = false);
 builder.Services.AddScoped<ChatSessionValidator>();
 builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
+builder.Services.AddSingleton<ConversationConnections>();
 
 builder.Services.AddDbContext<ChatDbContext>((services, options) =>
 {
