@@ -6,11 +6,13 @@ namespace Chat.Api.Realtime;
 
 public sealed class ChatSessionValidator(SignInManager<ApplicationUser> signIn, UserManager<ApplicationUser> users)
 {
+    public Guid? GetUserId(ClaimsPrincipal? principal) => principal?.Identity?.IsAuthenticated == true
+        && Guid.TryParse(users.GetUserId(principal), out var id) && id != Guid.Empty ? id : null;
+
     public async Task<bool> IsValidAsync(ClaimsPrincipal? principal)
     {
-        if (principal?.Identity?.IsAuthenticated != true ||
-            !Guid.TryParse(users.GetUserId(principal), out var id) || id == Guid.Empty) return false;
-        var user = await signIn.ValidateSecurityStampAsync(principal);
+        if (GetUserId(principal) is null) return false;
+        var user = await signIn.ValidateSecurityStampAsync(principal!);
         return user is not null && await signIn.CanSignInAsync(user) && !await users.IsLockedOutAsync(user);
     }
 }
