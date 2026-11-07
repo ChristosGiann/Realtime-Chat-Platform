@@ -12,6 +12,7 @@
     "test:e2e": "playwright test --config playwright.e2e.config.ts"
   },
   "dependencies": {
+    "@microsoft/signalr": "10.0.11",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
