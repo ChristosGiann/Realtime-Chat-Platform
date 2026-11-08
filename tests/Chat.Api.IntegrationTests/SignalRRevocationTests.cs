@@ -9,6 +9,42 @@ namespace Chat.Api.IntegrationTests;
 
 public sealed partial class MessageCreationTests
 {
+    [Fact]
+    public async Task SignalRFailedUnsubscribeRemainsRevocable()
+    {
+        var groups = new FailingRemovalGroups();
+        var registry = new ConversationConnections(new GroupOnlyHubContext(groups));
+        var user = Guid.NewGuid(); var conversation = Guid.NewGuid();
+        registry.Connected("connection", user, () => { });
+        await registry.Subscribe("connection", conversation, CancellationToken.None);
+        groups.FailNextRemoval = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => registry.Unsubscribe("connection", conversation, CancellationToken.None));
+        Assert.True(groups.Joined);
+        await registry.Revoke(conversation, user, CancellationToken.None);
+        Assert.False(groups.Joined);
+        Assert.Equal(2, groups.RemovalAttempts);
+    }
+
+    private sealed class GroupOnlyHubContext(IGroupManager groups) : IHubContext<ChatHub>
+    {
+        public IHubClients Clients => throw new NotSupportedException();
+        public IGroupManager Groups => groups;
+    }
+    private sealed class FailingRemovalGroups : IGroupManager
+    {
+        public bool Joined { get; private set; }
+        public bool FailNextRemoval { get; set; }
+        public int RemovalAttempts { get; private set; }
+        public Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+        { Joined = true; return Task.CompletedTask; }
+        public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+        {
+            RemovalAttempts++;
+            if (FailNextRemoval) { FailNextRemoval = false; throw new InvalidOperationException("Simulated group transport failure."); }
+            Joined = false; return Task.CompletedTask;
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

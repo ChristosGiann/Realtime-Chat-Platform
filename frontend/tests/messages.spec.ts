@@ -17,12 +17,16 @@ async function setup(page: Page) {
 }
 const panel = (page: Page) => page.getByRole('region', { name: 'Μηνύματα συνομιλίας' })
 
-async function liveSocket(page: Page) {
+async function liveSocket(page: Page, failInitial = false) {
   let socket: WebSocketRoute
-  await page.route('**/hubs/chat/negotiate?*', route => route.fulfill({ json: {
+  let attempts = 0
+  await page.route('**/hubs/chat/negotiate?*', route => {
+    if (failInitial && attempts++ === 0) return route.fulfill({ status: 503, json: {} })
+    return route.fulfill({ json: {
     negotiateVersion: 1, connectionId: 'test-connection', connectionToken: 'test-token',
     availableTransports: [{ transport: 'WebSockets', transferFormats: ['Text'] }],
-  } }))
+    } })
+  })
   await page.routeWebSocket('**/hubs/chat?*', ws => {
     socket = ws
     ws.onMessage(data => {
@@ -38,6 +42,16 @@ async function liveSocket(page: Page) {
     close: () => socket.close(),
   }
 }
+
+test('initial SignalR failure retries without discarding durable history', async ({ page }) => {
+  await setup(page); await liveSocket(page, true)
+  await page.route(`**/api/conversations/${group}/messages?*`, route => route.fulfill({ json: { items: [latest], nextCursor: null } }))
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Επανασύνδεση')
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(1)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(1)
+})
 
 test('live events reconcile with REST response and reject other conversations', async ({ page }) => {
   await setup(page); const socket = await liveSocket(page)

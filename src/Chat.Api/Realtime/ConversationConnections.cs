@@ -23,8 +23,9 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
     }
     public async Task Unsubscribe(string id, Guid conversation, CancellationToken token)
     {
-        if (connections.TryGetValue(id, out var connection)) connection.Conversations.TryRemove(conversation, out _);
         await hub.Groups.RemoveFromGroupAsync(id, ConversationGroup.Name(conversation), token);
+        // Keep routing metadata until removal succeeds, so a later revocation can still find it.
+        if (connections.TryGetValue(id, out var connection)) connection.Conversations.TryRemove(conversation, out _);
     }
     public async Task Revoke(Guid conversation, Guid userId, CancellationToken token)
     {
