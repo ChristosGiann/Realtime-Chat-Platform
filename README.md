@@ -10,6 +10,7 @@
 - [Επαλήθευση Stage 2 και παράδοση στο Stage 3](docs/stage2-verification.md)
 - [Επαλήθευση Stage 3 και παράδοση στο Stage 4](docs/stage3-verification.md)
 - [Επαλήθευση Stage 4 και περιορισμοί κλιμάκωσης](docs/stage4-verification.md)
+- [Stage 5: πρόταση semantics για presence, typing και receipts (#77)](docs/stage5-semantics.md)
 - [Authenticated SignalR infrastructure](docs/signalr-infrastructure.md)
 - [Εξουσιοδοτημένες SignalR subscriptions](docs/signalr-subscriptions.md)
 - [Live μηνύματα στο React](docs/signalr-react.md)
