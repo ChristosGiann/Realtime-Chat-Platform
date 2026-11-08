@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import { conversationsApi, conversationError } from '../api/conversations'
@@ -27,13 +27,16 @@ function ConversationList({ selectedId }: { selectedId?: string }) {
     } catch (cause) { if (!controller.signal.aborted) setError(conversationError(cause)) }
     finally { if (!controller.signal.aborted) setBusy(false) }
   }
+  const refreshAfterRecovery = useEffectEvent(() => { void load() })
   useEffect(() => {
     const controller = new AbortController(); active.current = controller
     void conversationsApi.list(0, controller.signal).then(result => {
       if (!controller.signal.aborted) { setItems(result.items); setNext(result.nextOffset) }
     }).catch(cause => { if (!controller.signal.aborted) setError(conversationError(cause)) })
       .finally(() => { if (!controller.signal.aborted) setBusy(false) })
-    return () => { controller.abort(); active.current?.abort() }
+    const recovered = () => { refreshAfterRecovery() }
+    window.addEventListener('conversation-resynced', recovered)
+    return () => { controller.abort(); active.current?.abort(); window.removeEventListener('conversation-resynced', recovered) }
   }, [])
   return <aside className="panel conversation-list" aria-label="Λίστα συνομιλιών"><h2>Οι συνομιλίες μου</h2>
     <button disabled={busy} onClick={() => void load()}>Ανανέωση λίστας</button>
@@ -105,13 +108,16 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
       if (!controller.signal.aborted) { setError(conversationError(cause)); setDetails(null) }
     } finally { if (!controller.signal.aborted) setBusy(false) }
   }
+  const refreshAfterRecovery = useEffectEvent(() => { void load() })
   useEffect(() => {
     const controller = new AbortController(); active.current = controller
     void conversationsApi.details(id, 0, controller.signal).then(result => {
       if (!controller.signal.aborted) setDetails(result)
     }).catch(cause => { if (!controller.signal.aborted) setError(conversationError(cause)) })
       .finally(() => { if (!controller.signal.aborted) setBusy(false) })
-    return () => { controller.abort(); active.current?.abort() }
+    const recovered = () => { refreshAfterRecovery() }
+    window.addEventListener('conversation-resynced', recovered)
+    return () => { controller.abort(); active.current?.abort(); window.removeEventListener('conversation-resynced', recovered) }
   }, [id])
   async function change(operation: () => Promise<void>, left = false) {
     setBusy(true); setError('')

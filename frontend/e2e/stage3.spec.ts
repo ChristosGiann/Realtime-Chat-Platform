@@ -45,8 +45,8 @@ test('real A/B sends survive reload, retries stay unique, history and independen
     const body = 'Persisted Ελληνικά <script>plain text</script>'
     await sendUi(page, body)
     await page.reload(); await expect(panel(page).getByText(body, { exact: true })).toBeVisible()
-    // No live delivery is promised in Stage 3.
-    await expect(panel(bobPage).getByText('Δεν υπάρχουν ακόμη μηνύματα.')).toBeVisible()
+    // Stage 4 extends this durable regression with live delivery.
+    await expect(panel(bobPage).getByText(body, { exact: true })).toBeVisible()
     await panel(bobPage).getByRole('button', { name: 'Ανανέωση μηνυμάτων' }).click()
     await expect(panel(bobPage).getByText('Μη αναγνωσμένα: 1')).toBeVisible()
     await panel(bobPage).getByRole('button', { name: 'Σήμανση ιστορικού ως αναγνωσμένου' }).click()

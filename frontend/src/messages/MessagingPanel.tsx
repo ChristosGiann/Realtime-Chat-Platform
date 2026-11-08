@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError } from '../api/client'
-import { messagesApi, messagingError } from '../api/messages'
+import { messagesApi, messagingError, recoverMessages } from '../api/messages'
 import type { HistoryMessage, ReadState, SendRequest } from '../api/messages'
 import { useAuth } from '../auth/context'
+import { liveConversation } from './liveConversation'
+import type { LiveStatus } from './liveConversation'
 
 // Preserve PostgreSQL microseconds; JavaScript Date would truncate timestamp ties to milliseconds.
 const timeKey = (value: string) => value.slice(0, 19) + (value.includes('.') ? value.split('.')[1].replace('Z', '') : '').padEnd(7, '0')
@@ -28,26 +30,68 @@ export function MessagingPanel({ id }: { id: string }) {
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState('')
   const [sendError, setSendError] = useState('')
+  const [live, setLive] = useState<LiveStatus>('connecting')
   const active = useRef<AbortController | null>(null)
   const alive = useRef(false)
   const mutation = useRef(false)
+  const liveStop = useRef<(() => void) | undefined>(undefined)
   const busy = loading || sending || reading
   function fail(cause: unknown) {
     setError(messagingError(cause))
     if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) {
+      liveStop.current?.()
       setUnavailable(true); setItems([]); setRead(null); setReadTarget(null); setNext(null)
     }
   }
   useEffect(() => {
     alive.current = true
-    const controller = new AbortController(); active.current = controller
+    // Lifetime requests must not be aborted by the manual refresh/pagination controller.
+    const controller = new AbortController()
+    let stop: (() => void) | undefined
+    let anchor: string | null = null
+    let readVersion = 0
+    const connect = () => liveConversation(id, {
+      status: setLive,
+      validate: async () => { await messagesApi.readState(id, controller.signal) },
+      rejected: cause => { fail(cause); window.dispatchEvent(new Event('conversation-resynced')) },
+      message: message => {
+        setItems(previous => mergeMessages([...previous, { ...message, sender: {
+          userId: message.senderId, displayName: message.senderId === user?.id ? user.displayName ?? user.userName : null, avatarUrl: null,
+        } }]))
+        const version = ++readVersion
+        void messagesApi.readState(id, controller.signal).then(state => {
+          if (!controller.signal.aborted && version === readVersion) setRead(state)
+        }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
+      },
+      subscribed: async () => {
+        const page = await recoverMessages(id, anchor, controller.signal)
+        const version = ++readVersion
+        const state = await messagesApi.readState(id, controller.signal)
+        if (!controller.signal.aborted) {
+          setError(''); setUnavailable(false)
+          setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor)
+          if (version === readVersion) setRead(state)
+          setReadTarget(page.items[0]?.id ?? null)
+          anchor = page.items[0]?.id ?? anchor
+          window.dispatchEvent(new Event('conversation-resynced'))
+        }
+      },
+    })
     void Promise.all([messagesApi.history(id, null, controller.signal), messagesApi.readState(id, controller.signal)])
       .then(([page, state]) => {
-        if (!controller.signal.aborted) { setItems(mergeMessages(page.items)); setNext(page.nextCursor); setRead(state); setReadTarget(page.items[0]?.id ?? null) }
-      }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
+        if (controller.signal.aborted) return
+        anchor = page.items[0]?.id ?? null
+        setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state); setReadTarget(anchor)
+        stop = connect(); liveStop.current = stop
+      }).catch(cause => {
+        if (!controller.signal.aborted) {
+          fail(cause)
+          if (!(cause instanceof ApiError && [401, 403, 404].includes(cause.status))) { stop = connect(); liveStop.current = stop }
+        }
+      })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => { alive.current = false; controller.abort(); active.current?.abort() }
-  }, [id])
+    return () => { alive.current = false; controller.abort(); active.current?.abort(); stop?.() }
+  }, [id, user?.id, user?.displayName, user?.userName])
   async function load(older = false) {
     if (mutation.current) return
     active.current?.abort(); const controller = new AbortController(); active.current = controller
@@ -55,7 +99,7 @@ export function MessagingPanel({ id }: { id: string }) {
     try {
       const [page, state] = await Promise.all([messagesApi.history(id, older ? next : null, controller.signal), messagesApi.readState(id, controller.signal)])
       if (controller.signal.aborted) return
-      setItems(previous => mergeMessages(older ? [...previous, ...page.items] : page.items)); setNext(page.nextCursor); setRead(state); setUnavailable(false)
+      setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state); setUnavailable(false)
       if (!older) setReadTarget(page.items[0]?.id ?? null)
     } catch (cause) { if (!controller.signal.aborted) fail(cause) }
     finally { if (!controller.signal.aborted) setLoading(false) }
@@ -86,7 +130,7 @@ export function MessagingPanel({ id }: { id: string }) {
     finally { mutation.current = false; if (alive.current) setReading(false) }
   }
   return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><h3>Μηνύματα</h3>
-    <p className="hint">Τα νέα μηνύματα εμφανίζονται με ανανέωση.</p>
+    <p role="status" aria-label="Κατάσταση live σύνδεσης">{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p>
     <button disabled={busy} onClick={() => void load()}>Ανανέωση μηνυμάτων</button>
     {loading && <p role="status">Φόρτωση μηνυμάτων…</p>}
     {error && <p role="alert">{error}</p>}
