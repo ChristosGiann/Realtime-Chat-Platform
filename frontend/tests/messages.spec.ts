@@ -17,9 +17,13 @@ async function setup(page: Page) {
 }
 const panel = (page: Page) => page.getByRole('region', { name: 'Μηνύματα συνομιλίας' })
 
-async function liveSocket(page: Page, failInitial = false) {
+async function liveSocket(page: Page, failInitial = false, deferSubscribe = false) {
   let socket: WebSocketRoute
   let attempts = 0
+  let connections = 0
+  let closed = 0
+  const invocations: string[] = []
+  let releaseSubscribe = () => {}
   await page.route('**/hubs/chat/negotiate?*', route => {
     if (failInitial && attempts++ === 0) return route.fulfill({ status: 503, json: {} })
     return route.fulfill({ json: {
@@ -29,19 +33,105 @@ async function liveSocket(page: Page, failInitial = false) {
   })
   await page.routeWebSocket('**/hubs/chat?*', ws => {
     socket = ws
+    connections++
+    ws.onClose(() => { closed++ })
     ws.onMessage(data => {
       for (const raw of data.toString().split('\u001e').filter(Boolean)) {
         const frame = JSON.parse(raw)
         if (frame.protocol) ws.send('{}\u001e')
-        else if (frame.type === 1) ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId }) + '\u001e')
+        else if (frame.type === 1) {
+          invocations.push(`${frame.target}:${frame.arguments[0]}`)
+          const complete = () => ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId }) + '\u001e')
+          if (deferSubscribe && frame.target === 'Subscribe') { deferSubscribe = false; releaseSubscribe = complete }
+          else complete()
+        }
       }
     })
   })
   return {
+    connections: () => connections,
+    closed: () => closed,
+    invocations,
+    releaseSubscribe: () => releaseSubscribe(),
     emit: (value: unknown) => socket.send(JSON.stringify({ type: 1, target: 'MessageCreated', arguments: [value] }) + '\u001e'),
     close: () => socket.close(),
   }
 }
+
+test('shared connection survives conversation navigation and cleans groups without duplicate delivery', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  const second = '55555555-5555-5555-5555-555555555555'
+  await page.route(`**/api/conversations/${second}?*`, route => route.fulfill({ json: { id: second, type: 'Group', name: 'Second', myRole: 'Owner', members: [], nextOffset: null } }))
+  await page.route(`**/api/conversations/${second}/messages?*`, route => route.fulfill({ json: { items: [], nextCursor: null } }))
+  await page.route(`**/api/conversations/${second}/read-state`, route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 0 } }))
+  await page.goto('/#/app')
+  await expect.poll(socket.connections).toBe(1)
+  for (const id of [group, second, group]) {
+    await page.evaluate(id => { location.hash = `/conversations/${id}` }, id)
+    await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  }
+  expect(socket.invocations).toEqual([`Subscribe:${group}`, `Unsubscribe:${group}`, `Subscribe:${second}`, `Unsubscribe:${second}`, `Subscribe:${group}`])
+  socket.emit({ ...older, conversationId: second }); socket.emit(latest); socket.emit(latest)
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(1)
+  await page.getByRole('link', { name: 'Realtime Chat' }).click()
+  await expect.poll(() => socket.invocations.at(-1)).toBe(`Unsubscribe:${group}`)
+  expect(socket.connections()).toBe(1); expect(socket.closed()).toBe(0)
+})
+
+test('logout at home stops shared transport and cancels reconnect retries', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.route('**/api/auth/logout', route => route.fulfill({ status: 204 }))
+  await page.goto('/#/app'); await expect.poll(socket.connections).toBe(1)
+  await page.getByRole('button', { name: 'Αποσύνδεση', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Σύνδεση', exact: true })).toBeVisible()
+  await expect.poll(socket.closed).toBe(1)
+  await page.clock.install(); await page.clock.fastForward(60000)
+  expect(socket.connections()).toBe(1)
+  await page.route('**/api/auth/login', route => route.fulfill({ status: 204 }))
+  await page.getByLabel('Email', { exact: true }).fill('alice@example.test')
+  await page.getByLabel('Κωδικός', { exact: true }).fill('Test-password123!')
+  await page.getByRole('button', { name: 'Σύνδεση', exact: true }).click()
+  await expect.poll(socket.connections).toBe(2)
+  expect(socket.closed()).toBe(1)
+})
+
+test('late Subscribe completion after navigation is undone before the next subscription', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page, false, true)
+  await page.goto(`/#/conversations/${group}`)
+  await expect.poll(() => socket.invocations).toEqual([`Subscribe:${group}`])
+  await page.getByRole('link', { name: 'Realtime Chat' }).click()
+  await expect(page.getByRole('heading', { name: /Καλώς ήρθες/ })).toBeVisible()
+  socket.releaseSubscribe()
+  await expect.poll(() => socket.invocations).toEqual([`Subscribe:${group}`, `Unsubscribe:${group}`])
+  await page.evaluate(id => { location.hash = `/conversations/${id}` }, group)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  socket.emit(latest)
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(1)
+  expect(socket.connections()).toBe(1)
+})
+
+test('session loss at home is detected before reconnect without conversation requests', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto('/#/app'); await expect.poll(socket.connections).toBe(1)
+  await page.route('**/api/auth/me', route => route.fulfill({ status: 401, json: {} }))
+  socket.close()
+  await expect(page.getByRole('heading', { name: 'Σύνδεση', exact: true })).toBeVisible()
+  expect(socket.connections()).toBe(1)
+})
+
+test('conversation access rejection leaves the authenticated transport reusable', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.route(`**/api/conversations/${group}/read-state`, route => route.fulfill({ status: 404, json: {} }))
+  socket.close()
+  await expect(panel(page).getByRole('alert')).toContainText('Δεν έχεις πλέον πρόσβαση')
+  await page.getByRole('link', { name: 'Realtime Chat' }).click()
+  await page.route(`**/api/conversations/${group}/read-state`, route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 0 } }))
+  await page.evaluate(id => { location.hash = `/conversations/${id}` }, group)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  expect(socket.connections()).toBe(2)
+})
 
 test('initial SignalR failure retries without discarding durable history', async ({ page }) => {
   await setup(page); await liveSocket(page, true)

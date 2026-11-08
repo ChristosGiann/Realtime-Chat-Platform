@@ -20,7 +20,7 @@ CSRF στα REST mutations, credentialed CORS/Origin validation και το sess
 | [ChatHub](../src/Chat.Api/Realtime/ChatHub.cs) | Session validation σε connect/invocations, membership πριν από Subscribe | Οι νέες πράξεις επαναχρησιμοποιούν την ίδια server-side authority |
 | [ReadStateController](../src/Chat.Api/Messages/ReadStateController.cs) | Monotonic read prefix με `(CreatedAt, Id)` και conversation lock | Το read δεν αντικαθίσταται από UI flags ή SignalR events |
 | [ConversationMember](../src/Chat.Api/Conversations/Conversation.cs) | Composite membership key, nullable LastReadMessageId, JoinedAt | Delivery θα ανήκει στην ίδια membership, όχι σε global user/message flag |
-| [liveConversation.ts](../frontend/src/messages/liveConversation.ts) | Σύνδεση ανά mounted συνομιλία, retry/REST recovery | Shared authenticated σύνδεση ανά tab/session ανήκει αποκλειστικά στο #78 |
+| [liveConversation.ts στο Stage 4](https://github.com/ChristosGiann/Realtime-Chat-Platform/blob/e8587270697b6077e53d00a016b6461482b95ac5/frontend/src/messages/liveConversation.ts) | Σύνδεση ανά mounted συνομιλία, retry/REST recovery | Shared authenticated σύνδεση ανά tab/session ανήκει αποκλειστικά στο #78 |
 | [MessagingPanel](../frontend/src/messages/MessagingPanel.tsx) | Explicit mark-as-read, REST send, durable-ID deduplication | Η live λήψη δεν σημαίνει αυτόματα Read |
 
 Το σημερινό `LastReadAt` είναι το **CreatedAt του anchor message**, όχι χρόνος

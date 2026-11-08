@@ -3,11 +3,14 @@
 Η σύνδεση κάνει ελεγχόμενα retries μετά από αρχικό failure ή disconnect:
 1, 2, 5, 15 και κατόπιν 30 δευτερόλεπτα. Δεν δημιουργούνται παράλληλα starts.
 Το online event επιταχύνει την προσπάθεια, το offline κλείνει το socket και
-το unmount/logout καθαρίζει timers, handlers και σύνδεση.
+το unmount του authenticated provider/logout καθαρίζει timers, handlers και σύνδεση.
+Από το #78, το unmount μιας συνομιλίας αφαιρεί μόνο τη subscription της.
 
-Κάθε προσπάθεια ελέγχει πρώτα το προστατευμένο REST read state. HTTP 401 οδηγεί
+Κάθε προσπάθεια σύνδεσης ελέγχει πρώτα το `/api/auth/me` για το αναμενόμενο session.
+Κάθε subscription ελέγχει το προστατευμένο REST read state. HTTP 401 οδηγεί
 στο υπάρχον session-expired/login flow· 403/404 καθαρίζει τα προστατευμένα
-μηνύματα και σταματά τα retries. Subscribe επανελέγχει ανεξάρτητα την PostgreSQL
+μηνύματα και σταματά τα retries της συγκεκριμένης subscription, διατηρώντας την κοινή
+σύνδεση για τις άλλες συνομιλίες. Subscribe επανελέγχει ανεξάρτητα την PostgreSQL
 membership στον server. Rejoin δεν παρακάμπτει αυτόν τον έλεγχο.
 
 Μετά από Subscribe ανακτάται το REST ιστορικό από το νεότερο προς το παλαιότερο

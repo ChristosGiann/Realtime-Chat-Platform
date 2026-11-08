@@ -1,10 +1,11 @@
 # Live React messaging — #64
 
-Το MessagingPanel ανοίγει τον επίσημο @microsoft/signalr client στο ίδιο API
+Το RealtimeProvider ανοίγει τον επίσημο @microsoft/signalr client στο ίδιο API
 origin με το REST, με credentials και το υπάρχον HttpOnly session cookie.
-Δεν αποθηκεύει token ούτε στέλνει actor IDs. Κάθε mounted συνομιλία διαθέτει
-δική της σύνδεση: αλλαγή συνομιλίας/logout κάνει unsubscribe και stop, ενώ
-disposed handlers αγνοούν καθυστερημένα events.
+Δεν αποθηκεύει token ούτε στέλνει actor IDs. Από το #78 υπάρχει μία κοινή σύνδεση
+ανά authenticated tab/session. Κάθε mounted συνομιλία κρατά subscription:
+αλλαγή συνομιλίας κάνει unsubscribe, ενώ logout σταματά τη σύνδεση.
+Οι λεπτομέρειες ownership και cleanup βρίσκονται στο [shared lifecycle](signalr-shared-connection.md).
 
 Το MessageCreated συγχωνεύεται με REST history/send μέσω durable message ID.
 Το clientMessageId παραμένει το ίδιο στο retry και στο event. Το κείμενο
