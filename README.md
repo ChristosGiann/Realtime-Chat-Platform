@@ -11,6 +11,7 @@
 - [Authenticated SignalR infrastructure](docs/signalr-infrastructure.md)
 - [Εξουσιοδοτημένες SignalR subscriptions](docs/signalr-subscriptions.md)
 - [Live μηνύματα στο React](docs/signalr-react.md)
+- [Επανασύνδεση και REST resync](docs/signalr-reconnect.md)
 - [SignalR events μετά το commit](docs/signalr-message-events.md)
 - [Συνεδρίες browser](docs/browser-sessions.md)
 - [Frontend εγγραφής/σύνδεσης](docs/auth-frontend.md)

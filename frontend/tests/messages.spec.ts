@@ -59,8 +59,41 @@ test('live events reconcile with REST response and reject other conversations', 
   await expect(panel(page).getByText('<img src=x onerror=alert(1)>', { exact: true })).toBeVisible()
   await expect(panel(page).locator('img')).toHaveCount(0)
   socket.close()
-  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Χωρίς ζωντανή σύνδεση')
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Επανασύνδεση')
   await expect(panel(page).locator('[data-message-id]')).toHaveCount(2)
+})
+
+test('reconnect recovers more than one history page and deduplicates existing events', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  let disconnected = false
+  const missed = Array.from({ length: 35 }, (_, i) => message(`aaaaaaaa-aaaa-aaaa-aaaa-${String(i).padStart(12, '0')}`, `Missed ${i}`, `2026-02-01T00:00:${String(i).padStart(2, '0')}.000000Z`)).reverse()
+  let pages = 0
+  await page.route(`**/api/conversations/${group}/messages?*`, route => {
+    if (!disconnected) return route.fulfill({ json: { items: [latest], nextCursor: null } })
+    pages++
+    return route.fulfill({ json: new URL(route.request().url()).searchParams.has('cursor')
+      ? { items: [...missed.slice(30), latest], nextCursor: null } : { items: missed.slice(0, 30), nextCursor: 'recovery-page-2' } })
+  })
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  socket.emit(latest); disconnected = true; socket.close()
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Επανασύνδεση')
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(36)
+  expect(pages).toBeGreaterThanOrEqual(2)
+  socket.emit(missed[0])
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(36)
+})
+
+for (const status of [401, 404]) test(`reconnect handles access status ${status} without resubscribing`, async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.route(`**/api/conversations/${group}/read-state`, route => route.fulfill({ status, json: {} }))
+  socket.close()
+  if (status === 401) await expect(page.getByRole('heading', { name: 'Σύνδεση', exact: true })).toBeVisible()
+  else await expect(panel(page).getByRole('alert')).toContainText('Δεν έχεις πλέον πρόσβαση')
+  await expect(page.getByLabel('Νέο μήνυμα', { exact: true })).toHaveCount(0)
 })
 
 test('history is safe text, older pages deduplicate and explicit read uses loaded anchor', async ({ page }, testInfo) => {

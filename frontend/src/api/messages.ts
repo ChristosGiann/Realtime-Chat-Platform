@@ -12,6 +12,18 @@ export const messagesApi = {
   readState: (id: string, signal?: AbortSignal) => request<ReadState>(`${path(id)}/read-state`, { signal }, true),
   advance: (id: string, messageId: string) => mutate<ReadState>(`${path(id)}/read-state`, 'PUT', { messageId }),
 }
+
+// Follow stable REST cursors until the last synchronized durable anchor (or the end).
+export async function recoverMessages(id: string, anchor: string | null, signal: AbortSignal): Promise<HistoryPage> {
+  const items: HistoryMessage[] = []
+  let cursor: string | null = null
+  do {
+    const page = await messagesApi.history(id, cursor, signal)
+    items.push(...page.items); cursor = page.nextCursor
+    if (anchor && page.items.some(item => item.id === anchor)) break
+  } while (cursor && !signal.aborted)
+  return { items, nextCursor: cursor }
+}
 export function messagingError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 404 || error.status === 403) return 'Δεν έχεις πλέον πρόσβαση σε αυτή τη συνομιλία ή το μήνυμα δεν είναι διαθέσιμο.'

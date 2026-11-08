@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError } from '../api/client'
-import { messagesApi, messagingError } from '../api/messages'
+import { messagesApi, messagingError, recoverMessages } from '../api/messages'
 import type { HistoryMessage, ReadState, SendRequest } from '../api/messages'
 import { useAuth } from '../auth/context'
 import { liveConversation } from './liveConversation'
@@ -34,47 +34,64 @@ export function MessagingPanel({ id }: { id: string }) {
   const active = useRef<AbortController | null>(null)
   const alive = useRef(false)
   const mutation = useRef(false)
+  const liveStop = useRef<(() => void) | undefined>(undefined)
   const busy = loading || sending || reading
   function fail(cause: unknown) {
     setError(messagingError(cause))
     if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) {
+      liveStop.current?.()
       setUnavailable(true); setItems([]); setRead(null); setReadTarget(null); setNext(null)
     }
   }
   useEffect(() => {
     alive.current = true
-    const controller = new AbortController(); active.current = controller
-    void Promise.all([messagesApi.history(id, null, controller.signal), messagesApi.readState(id, controller.signal)])
-      .then(([page, state]) => {
-        if (!controller.signal.aborted) { setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state); setReadTarget(page.items[0]?.id ?? null) }
-      }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => { alive.current = false; controller.abort(); active.current?.abort() }
-  }, [id])
-  useEffect(() => {
-    if (unavailable) return
+    // Lifetime requests must not be aborted by the manual refresh/pagination controller.
     const controller = new AbortController()
-    const stop = liveConversation(id, {
+    let stop: (() => void) | undefined
+    let anchor: string | null = null
+    let readVersion = 0
+    const connect = () => liveConversation(id, {
       status: setLive,
+      validate: async () => { await messagesApi.readState(id, controller.signal) },
+      rejected: cause => { fail(cause); window.dispatchEvent(new Event('conversation-resynced')) },
       message: message => {
         setItems(previous => mergeMessages([...previous, { ...message, sender: {
           userId: message.senderId, displayName: message.senderId === user?.id ? user.displayName ?? user.userName : null, avatarUrl: null,
         } }]))
+        const version = ++readVersion
         void messagesApi.readState(id, controller.signal).then(state => {
-          if (!controller.signal.aborted) setRead(state)
+          if (!controller.signal.aborted && version === readVersion) setRead(state)
         }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
       },
       subscribed: async () => {
-        // Fetch after Subscribe closes the initial history/connection gap. Events merge by durable ID.
-        const [page, state] = await Promise.all([messagesApi.history(id, null, controller.signal), messagesApi.readState(id, controller.signal)])
+        const page = await recoverMessages(id, anchor, controller.signal)
+        const version = ++readVersion
+        const state = await messagesApi.readState(id, controller.signal)
         if (!controller.signal.aborted) {
-          setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state)
+          setError(''); setUnavailable(false)
+          setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor)
+          if (version === readVersion) setRead(state)
           setReadTarget(page.items[0]?.id ?? null)
+          anchor = page.items[0]?.id ?? anchor
+          window.dispatchEvent(new Event('conversation-resynced'))
         }
       },
     })
-    return () => { controller.abort(); stop() }
-  }, [id, unavailable, user?.id, user?.displayName, user?.userName])
+    void Promise.all([messagesApi.history(id, null, controller.signal), messagesApi.readState(id, controller.signal)])
+      .then(([page, state]) => {
+        if (controller.signal.aborted) return
+        anchor = page.items[0]?.id ?? null
+        setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state); setReadTarget(anchor)
+        stop = connect(); liveStop.current = stop
+      }).catch(cause => {
+        if (!controller.signal.aborted) {
+          fail(cause)
+          if (!(cause instanceof ApiError && [401, 403, 404].includes(cause.status))) { stop = connect(); liveStop.current = stop }
+        }
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => { alive.current = false; controller.abort(); active.current?.abort(); stop?.() }
+  }, [id, user?.id, user?.displayName, user?.userName])
   async function load(older = false) {
     if (mutation.current) return
     active.current?.abort(); const controller = new AbortController(); active.current = controller
