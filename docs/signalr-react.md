@@ -17,6 +17,6 @@ disposed handlers αγνοούν καθυστερημένα events.
 
 Η UI δείχνει connecting/connected/disconnected, διατηρεί durable μηνύματα
 σε αποσύνδεση και επιτρέπει REST refresh/send. Αυτόματη επανασύνδεση και πλήρες
-gap recovery υλοποιούνται στο #65. Δεν υπάρχει offline send queue ή presence.
+gap recovery καλύπτονται στο [#65](signalr-reconnect.md). Δεν υπάρχει offline send queue ή presence.
 
 Αναφορά API client: https://learn.microsoft.com/en-us/aspnet/core/signalr/javascript-client?view=aspnetcore-10.0
