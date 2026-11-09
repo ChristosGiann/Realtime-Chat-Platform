@@ -4,25 +4,31 @@ using Chat.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity;
 
 namespace Chat.Api.Realtime;
 
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
-public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, ConversationAuthorization authorization, ConversationConnections connections) : Hub
+public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, ConversationAuthorization authorization,
+    ConversationConnections connections, ConversationPresence presence) : Hub
 {
     public const string Endpoint = "/hubs/chat";
 
     public override async Task OnConnectedAsync()
     {
         if (!await sessions.IsValidAsync(Context.User)) { Context.Abort(); return; }
-        connections.Connected(Context.ConnectionId, sessions.GetUserId(Context.User)!.Value, Context.Abort);
+        var ticket = await Context.GetHttpContext()!.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+        if (ticket.Properties?.ExpiresUtc <= DateTimeOffset.UtcNow) { Context.Abort(); return; }
+        await presence.Publish(connections.Connected(Context.ConnectionId, sessions.GetUserId(Context.User)!.Value,
+            Context.Abort, ticket.Properties?.ExpiresUtc));
         await base.OnConnectedAsync();
     }
 
-    public override Task OnDisconnectedAsync(Exception? exception)
+    public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        connections.Disconnected(Context.ConnectionId);
-        return base.OnDisconnectedAsync(exception);
+        await presence.Publish(connections.Disconnected(Context.ConnectionId));
+        await base.OnDisconnectedAsync(exception);
     }
 
     public async Task Subscribe(Guid conversationId)
@@ -50,10 +56,31 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         await connections.Unsubscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
     }
 
+    public async Task<PresencePage> GetPresence(Guid conversationId, int offset, int limit)
+    {
+        var actor = await ValidActor();
+        if (conversationId == Guid.Empty || offset < 0 || limit is < 1 or > 100)
+            throw new HubException("Conversation not available.");
+        await using var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted);
+        await db.Conversations.FromSqlInterpolated($"SELECT * FROM conversations.\"Conversations\" WHERE \"Id\" = {conversationId} FOR UPDATE")
+            .SingleOrDefaultAsync(Context.ConnectionAborted);
+        if (!await authorization.ReadableConversationsFor(actor).AnyAsync(x => x.Id == conversationId, Context.ConnectionAborted))
+            throw new HubException("Conversation not available.");
+        var users = await db.ConversationMembers.Where(x => x.ConversationId == conversationId).OrderBy(x => x.UserId)
+            .Skip(offset).Take(limit + 1).Select(x => x.UserId).ToListAsync(Context.ConnectionAborted);
+        var result = connections.Snapshot(conversationId, users.Take(limit).ToArray(), users.Count > limit ? offset + limit : null);
+        await transaction.CommitAsync(Context.ConnectionAborted);
+        return result;
+    }
+
     private async Task<Guid> ValidActor()
     {
-        if (!await sessions.IsValidAsync(Context.User))
-        { Context.Abort(); throw new HubException("Authentication required."); }
+        if (!connections.IsActive(Context.ConnectionId) || !await sessions.IsValidAsync(Context.User))
+        {
+            Context.Abort();
+            await presence.Publish(connections.Disconnected(Context.ConnectionId));
+            throw new HubException("Authentication required.");
+        }
         return sessions.GetUserId(Context.User)!.Value;
     }
 }
