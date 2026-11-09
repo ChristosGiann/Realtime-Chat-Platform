@@ -4,8 +4,8 @@ import { ApiError } from '../api/client'
 import { messagesApi, messagingError, recoverMessages } from '../api/messages'
 import type { HistoryMessage, ReadState, SendRequest } from '../api/messages'
 import { useAuth } from '../auth/context'
-import { liveConversation } from './liveConversation'
-import type { LiveStatus } from './liveConversation'
+import { useRealtime } from './realtimeContext'
+import type { LiveStatus } from './RealtimeSession'
 
 // Preserve PostgreSQL microseconds; JavaScript Date would truncate timestamp ties to milliseconds.
 const timeKey = (value: string) => value.slice(0, 19) + (value.includes('.') ? value.split('.')[1].replace('Z', '') : '').padEnd(7, '0')
@@ -18,6 +18,7 @@ function mergeMessages(items: HistoryMessage[]) {
 
 export function MessagingPanel({ id }: { id: string }) {
   const { user } = useAuth()
+  const realtime = useRealtime()
   const [items, setItems] = useState<HistoryMessage[]>([])
   const [next, setNext] = useState<string | null>(null)
   const [read, setRead] = useState<ReadState | null>(null)
@@ -50,9 +51,9 @@ export function MessagingPanel({ id }: { id: string }) {
     let stop: (() => void) | undefined
     let anchor: string | null = null
     let readVersion = 0
-    const connect = () => liveConversation(id, {
+    const connect = () => realtime?.subscribe(id, {
       status: setLive,
-      validate: async () => { await messagesApi.readState(id, controller.signal) },
+      validate: async signal => { await messagesApi.readState(id, signal) },
       rejected: cause => { fail(cause); window.dispatchEvent(new Event('conversation-resynced')) },
       message: message => {
         setItems(previous => mergeMessages([...previous, { ...message, sender: {
@@ -63,11 +64,11 @@ export function MessagingPanel({ id }: { id: string }) {
           if (!controller.signal.aborted && version === readVersion) setRead(state)
         }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
       },
-      subscribed: async () => {
-        const page = await recoverMessages(id, anchor, controller.signal)
+      subscribed: async signal => {
+        const page = await recoverMessages(id, anchor, signal)
         const version = ++readVersion
-        const state = await messagesApi.readState(id, controller.signal)
-        if (!controller.signal.aborted) {
+        const state = await messagesApi.readState(id, signal)
+        if (!controller.signal.aborted && !signal.aborted) {
           setError(''); setUnavailable(false)
           setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor)
           if (version === readVersion) setRead(state)
@@ -91,7 +92,7 @@ export function MessagingPanel({ id }: { id: string }) {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => { alive.current = false; controller.abort(); active.current?.abort(); stop?.() }
-  }, [id, user?.id, user?.displayName, user?.userName])
+  }, [id, realtime, user?.id, user?.displayName, user?.userName])
   async function load(older = false) {
     if (mutation.current) return
     active.current?.abort(); const controller = new AbortController(); active.current = controller
