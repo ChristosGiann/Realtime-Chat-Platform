@@ -15,6 +15,7 @@
 - [Εξουσιοδοτημένες SignalR subscriptions](docs/signalr-subscriptions.md)
 - [Live μηνύματα στο React](docs/signalr-react.md)
 - [Κοινή authenticated σύνδεση ανά tab — #78](docs/signalr-shared-connection.md)
+- [Εξουσιοδοτημένη παρουσία συνομιλίας — #79](docs/signalr-presence.md)
 - [Επανασύνδεση και REST resync](docs/signalr-reconnect.md)
 - [SignalR events μετά το commit](docs/signalr-message-events.md)
 - [Συνεδρίες browser](docs/browser-sessions.md)
