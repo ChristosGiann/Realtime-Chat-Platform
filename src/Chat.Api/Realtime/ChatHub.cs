@@ -11,7 +11,7 @@ namespace Chat.Api.Realtime;
 
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
 public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, ConversationAuthorization authorization,
-    ConversationConnections connections, ConversationPresence presence) : Hub
+    ConversationConnections connections, ConversationPresence presence, ConversationTyping typing) : Hub
 {
     public const string Endpoint = "/hubs/chat";
 
@@ -71,6 +71,37 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         var result = connections.Snapshot(conversationId, users.Take(limit).ToArray(), users.Count > limit ? offset + limit : null);
         await transaction.CommitAsync(Context.ConnectionAborted);
         return result;
+    }
+
+    public async Task SetTyping(Guid conversationId, bool active)
+    {
+        var actor = await ValidActor();
+        await using var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted);
+        var members = await TypingMembers(conversationId, actor);
+        if (typing.Change(Context.ConnectionId, conversationId, actor, active))
+            await typing.Publish(conversationId, actor, members, Context.ConnectionAborted);
+        await transaction.CommitAsync(Context.ConnectionAborted);
+    }
+
+    public async Task<TypingSnapshot> GetTyping(Guid conversationId)
+    {
+        var actor = await ValidActor();
+        await using var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted);
+        var members = await TypingMembers(conversationId, actor);
+        var snapshot = typing.Snapshot(conversationId, members);
+        await transaction.CommitAsync(Context.ConnectionAborted);
+        return snapshot;
+    }
+
+    private async Task<List<Guid>> TypingMembers(Guid conversationId, Guid actor)
+    {
+        if (conversationId == Guid.Empty) throw new HubException("Conversation not available.");
+        await db.Conversations.FromSqlInterpolated($"SELECT * FROM conversations.\"Conversations\" WHERE \"Id\" = {conversationId} FOR UPDATE")
+            .SingleOrDefaultAsync(Context.ConnectionAborted);
+        if (connections.Subscription(Context.ConnectionId, conversationId) is null
+            || !await authorization.ReadableConversationsFor(actor).AnyAsync(x => x.Id == conversationId, Context.ConnectionAborted))
+            throw new HubException("Conversation not available.");
+        return await db.ConversationMembers.Where(x => x.ConversationId == conversationId).Select(x => x.UserId).ToListAsync(Context.ConnectionAborted);
     }
 
     private async Task<Guid> ValidActor()

@@ -10,11 +10,16 @@ export type ConversationCallbacks = {
   validate: (signal: AbortSignal) => Promise<void>
   rejected: (cause: unknown) => void
   subscribed: (signal: AbortSignal) => Promise<void>
+  typing?: (users: string[]) => void
 }
+type TypingEvent = { conversationId: string; userId: string; expiresInMilliseconds: number; version: number }
+type TypingSnapshot = { conversationId: string; items: Omit<TypingEvent, 'conversationId' | 'version'>[]; version: number }
 type Consumer = { callbacks: ConversationCallbacks; controller: AbortController; ready: number }
 type Subscription = {
   id: string; consumers: Set<Consumer>; joined: number; receiving: number
   syncing: boolean; timer?: ReturnType<typeof setTimeout>; attempts: number
+  typing: Map<string, { expires: number; version: number }>; typingExpiry?: ReturnType<typeof setTimeout>
+  typingIdle?: ReturnType<typeof setTimeout>; typingSent: boolean; lastTypingSent: number
 }
 const delay = (attempt: number) => [1000, 2000, 5000, 15000, 30000][Math.min(attempt, 4)]
 
@@ -44,6 +49,10 @@ export class RealtimeSession {
         || typeof message.body !== 'string' || typeof message.createdAt !== 'string') return
       for (const consumer of entry.consumers) consumer.callbacks.message(message)
     })
+    this.connection.on('TypingChanged', (event: TypingEvent) => {
+      const entry = this.subscriptions.get(event?.conversationId)
+      if (entry && this.current(entry, this.transport) && entry.receiving === this.transport) this.applyTyping(entry, event)
+    })
     this.connection.onclose(() => {
       this.invalidateTransport()
       if (this.running && !this.starting) this.retryConnection()
@@ -68,14 +77,55 @@ export class RealtimeSession {
   subscribe(id: string, callbacks: ConversationCallbacks) {
     let entry = this.subscriptions.get(id)
     if (!entry) {
-      entry = { id, consumers: new Set(), joined: 0, receiving: 0, syncing: false, attempts: 0 }
+      entry = { id, consumers: new Set(), joined: 0, receiving: 0, syncing: false, attempts: 0,
+        typing: new Map(), typingSent: false, lastTypingSent: -Infinity }
       this.subscriptions.set(id, entry)
     }
     const consumer: Consumer = { callbacks, controller: new AbortController(), ready: 0 }
     entry.consumers.add(consumer)
     callbacks.status(this.attempts ? 'reconnecting' : 'connecting')
+    this.notifyTyping(entry)
     void this.synchronize(entry)
     return () => this.remove(entry, consumer)
+  }
+  typing(id: string, active: boolean) {
+    const entry = this.subscriptions.get(id)
+    if (!entry) return
+    if (entry.typingIdle) clearTimeout(entry.typingIdle)
+    entry.typingIdle = undefined
+    if (!this.current(entry, this.transport) || entry.joined !== this.transport) return
+    if (active) {
+      const now = performance.now()
+      if (!entry.typingSent || now - entry.lastTypingSent >= 2000) {
+        entry.typingSent = true; entry.lastTypingSent = now
+        void this.connection.invoke('SetTyping', id, true).catch(() => {})
+      }
+      entry.typingIdle = setTimeout(() => this.typing(id, false), 2000)
+    } else if (entry.typingSent) {
+      entry.typingSent = false
+      void this.connection.invoke('SetTyping', id, false).catch(() => {})
+    }
+  }
+  private applyTyping(entry: Subscription, event: TypingEvent) {
+    if (typeof event.userId !== 'string' || event.userId === this.userId || !Number.isSafeInteger(event.version)
+      || !Number.isFinite(event.expiresInMilliseconds) || event.expiresInMilliseconds < 0 || event.expiresInMilliseconds > 5000) return
+    if ((entry.typing.get(event.userId)?.version ?? -1) >= event.version) return
+    entry.typing.set(event.userId, { expires: performance.now() + event.expiresInMilliseconds, version: event.version })
+    this.notifyTyping(entry)
+  }
+  private notifyTyping(entry: Subscription) {
+    if (entry.typingExpiry) clearTimeout(entry.typingExpiry)
+    entry.typingExpiry = undefined
+    const now = performance.now(), active = [...entry.typing.entries()].filter(([, value]) => value.expires > now)
+    for (const consumer of entry.consumers) consumer.callbacks.typing?.(active.map(([user]) => user))
+    if (active.length) entry.typingExpiry = setTimeout(() => this.notifyTyping(entry), Math.max(1, Math.min(...active.map(([, value]) => value.expires - now))))
+  }
+  private clearTyping(entry: Subscription) {
+    if (entry.typingExpiry) clearTimeout(entry.typingExpiry)
+    if (entry.typingIdle) clearTimeout(entry.typingIdle)
+    entry.typingExpiry = undefined; entry.typingIdle = undefined
+    entry.typing.clear(); entry.typingSent = false; entry.lastTypingSent = -Infinity
+    for (const consumer of entry.consumers) consumer.callbacks.typing?.([])
   }
   private current(entry: Subscription, epoch: number) {
     return this.running && this.transport === epoch && this.subscriptions.get(entry.id) === entry
@@ -89,6 +139,7 @@ export class RealtimeSession {
   private remove(entry: Subscription, consumer: Consumer) {
     consumer.controller.abort(); entry.consumers.delete(consumer)
     if (entry.consumers.size || this.subscriptions.get(entry.id) !== entry) return
+    this.typing(entry.id, false); this.clearTyping(entry)
     this.subscriptions.delete(entry.id)
     if (entry.timer) clearTimeout(entry.timer)
     const epoch = this.transport
@@ -104,6 +155,7 @@ export class RealtimeSession {
   private invalidateTransport() {
     this.transport++
     for (const entry of this.subscriptions.values()) {
+      this.clearTyping(entry)
       entry.joined = 0; entry.receiving = 0
       if (entry.timer) clearTimeout(entry.timer)
       entry.timer = undefined
@@ -165,6 +217,18 @@ export class RealtimeSession {
             entry.joined = epoch
           })
           if (!this.current(entry, epoch) || signal.aborted) continue
+          if (consumer.callbacks.typing) {
+            const snapshot = await this.connection.invoke<TypingSnapshot>('GetTyping', entry.id)
+            if (!this.current(entry, epoch) || signal.aborted) continue
+            if (snapshot?.conversationId !== entry.id || !Array.isArray(snapshot.items) || !Number.isSafeInteger(snapshot.version))
+              throw new Error('Invalid typing snapshot')
+            for (const user of entry.typing.keys()) this.applyTyping(entry, { conversationId: entry.id, userId: user, expiresInMilliseconds: 0, version: snapshot.version })
+            for (const item of snapshot.items) {
+              // Apply the snapshot atomically at its watermark, retaining newer live updates.
+              if ((entry.typing.get(item.userId)?.version ?? -1) <= snapshot.version) entry.typing.delete(item.userId)
+              this.applyTyping(entry, { ...item, conversationId: entry.id, version: snapshot.version })
+            }
+          }
           await consumer.callbacks.subscribed(signal)
           if (this.current(entry, epoch) && !signal.aborted) {
             consumer.ready = epoch; entry.attempts = 0; consumer.callbacks.status('connected')

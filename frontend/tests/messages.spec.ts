@@ -23,6 +23,7 @@ async function liveSocket(page: Page, failInitial = false, deferSubscribe = fals
   let connections = 0
   let closed = 0
   const invocations: string[] = []
+  const typingCalls: boolean[] = []
   let releaseSubscribe = () => {}
   await page.route('**/hubs/chat/negotiate?*', route => {
     if (failInitial && attempts++ === 0) return route.fulfill({ status: 503, json: {} })
@@ -40,8 +41,11 @@ async function liveSocket(page: Page, failInitial = false, deferSubscribe = fals
         const frame = JSON.parse(raw)
         if (frame.protocol) ws.send('{}\u001e')
         else if (frame.type === 1) {
-          invocations.push(`${frame.target}:${frame.arguments[0]}`)
-          const complete = () => ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId }) + '\u001e')
+          if (frame.target === 'SetTyping') typingCalls.push(frame.arguments[1])
+          if (['Subscribe', 'Unsubscribe'].includes(frame.target)) invocations.push(`${frame.target}:${frame.arguments[0]}`)
+          const complete = () => ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId,
+            ...(frame.target === 'GetTyping' ? { result: { conversationId: frame.arguments[0], items: [], version: 0 } } : {}),
+          }) + '\u001e')
           if (deferSubscribe && frame.target === 'Subscribe') { deferSubscribe = false; releaseSubscribe = complete }
           else complete()
         }
@@ -52,11 +56,55 @@ async function liveSocket(page: Page, failInitial = false, deferSubscribe = fals
     connections: () => connections,
     closed: () => closed,
     invocations,
+    typingCalls,
+    typing: (value: unknown) => socket.send(JSON.stringify({ type: 1, target: 'TypingChanged', arguments: [value] }) + '\u001e'),
     releaseSubscribe: () => releaseSubscribe(),
     emit: (value: unknown) => socket.send(JSON.stringify({ type: 1, target: 'MessageCreated', arguments: [value] }) + '\u001e'),
     close: () => socket.close(),
   }
 }
+
+test('typing throttles keystrokes and stops on idle, clear and blur', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.clock.install()
+  const composer = page.getByLabel('Νέο μήνυμα', { exact: true })
+  await composer.pressSequentially('typing many keystrokes')
+  await expect.poll(() => socket.typingCalls).toEqual([true])
+  await page.clock.fastForward(2100)
+  await expect.poll(() => socket.typingCalls).toEqual([true, false])
+  await composer.fill('more activity'); await composer.fill('')
+  await expect.poll(() => socket.typingCalls).toEqual([true, false, true, false])
+  await composer.fill('blur activity'); await composer.blur()
+  await expect.poll(() => socket.typingCalls).toEqual([true, false, true, false, true, false])
+})
+
+test('typing hides self and other conversations, expires lost stops and rejects old events', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.clock.install()
+  const state = { conversationId: group, userId: owner, expiresInMilliseconds: 5000, version: 1 }
+  socket.typing(state); socket.typing({ ...state, conversationId: 'other', userId: 'bob' })
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
+  socket.typing({ ...state, userId: 'bob' })
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toContainText('Ένας χρήστης')
+  await page.clock.fastForward(5100)
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
+  socket.typing({ ...state, userId: 'bob' })
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
+  socket.typing({ ...state, userId: 'bob', version: 2 })
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toBeVisible()
+  await page.getByLabel('Νέο μήνυμα', { exact: true }).fill('Draft before reconnect')
+  await expect.poll(() => socket.typingCalls).toEqual([true])
+  socket.close()
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Επανασύνδεση')
+  await page.clock.fastForward(1200)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  expect(socket.typingCalls).toEqual([true])
+})
 
 test('shared connection survives conversation navigation and cleans groups without duplicate delivery', async ({ page }) => {
   await setup(page); const socket = await liveSocket(page)
