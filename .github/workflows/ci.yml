@@ -69,7 +69,8 @@ jobs:
       - name: Build frontend
         run: npm run build
       - name: Install Chromium for UI tests
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 5
+        run: bash ../.github/scripts/install-chromium.sh
 
       - name: Run frontend browser tests
         run: npm run test:ui
@@ -114,6 +115,7 @@ jobs:
       - name: Build production frontend
         run: npm run build
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 5
+        run: bash ../.github/scripts/install-chromium.sh
       - name: Migrate clean database and verify real browser flows
         run: npm run test:e2e
