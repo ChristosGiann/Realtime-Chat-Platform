@@ -17,6 +17,7 @@
 - [Κοινή authenticated σύνδεση ανά tab — #78](docs/signalr-shared-connection.md)
 - [Εξουσιοδοτημένη παρουσία συνομιλίας — #79](docs/signalr-presence.md)
 - [Εξουσιοδοτημένο typing με leases — #80](docs/signalr-typing.md)
+- [Durable delivery progress — #81](docs/message-delivery-state.md)
 - [Επανασύνδεση και REST resync](docs/signalr-reconnect.md)
 - [SignalR events μετά το commit](docs/signalr-message-events.md)
 - [Συνεδρίες browser](docs/browser-sessions.md)

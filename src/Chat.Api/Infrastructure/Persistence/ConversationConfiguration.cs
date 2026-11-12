@@ -43,14 +43,19 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
         {
             table.HasCheckConstraint("CK_ConversationMembers_Role", "\"Role\" IN (1, 2)");
             table.HasCheckConstraint("CK_ConversationMembers_JoinedAt", "isfinite(\"JoinedAt\")");
+            table.HasCheckConstraint("CK_ConversationMembers_MembershipId", "\"MembershipId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
         });
         builder.HasKey(x => new { x.ConversationId, x.UserId });
+        builder.Property(x => x.MembershipId).HasDefaultValueSql("gen_random_uuid()");
+        builder.HasIndex(x => x.MembershipId).IsUnique();
         builder.Property(x => x.Role).HasConversion<int>();
         builder.Property(x => x.JoinedAt).HasColumnType("timestamp with time zone").HasDefaultValueSql("CURRENT_TIMESTAMP");
         builder.HasOne(x => x.Conversation).WithMany(x => x.Members)
             .HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Message>().WithMany().HasForeignKey(x => new { x.ConversationId, x.LastReadMessageId })
+            .HasPrincipalKey(x => new { x.ConversationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Message>().WithMany().HasForeignKey(x => new { x.ConversationId, x.LastDeliveredMessageId })
             .HasPrincipalKey(x => new { x.ConversationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.UserId, x.ConversationId });
         builder.HasIndex(x => x.ConversationId).IsUnique().HasFilter("\"Role\" = 2")

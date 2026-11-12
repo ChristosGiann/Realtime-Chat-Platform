@@ -14,9 +14,11 @@ namespace Chat.Api.Messages;
 public sealed class AdvanceReadRequest : IValidatableObject
 {
     [Required] public Guid? MessageId { get; init; }
+    public Guid? MembershipId { get; init; }
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (MessageId == Guid.Empty) yield return new ValidationResult("Message identifier must not be empty.", [nameof(MessageId)]);
+        if (MembershipId == Guid.Empty) yield return new ValidationResult("Membership identifier must not be empty.", [nameof(MembershipId)]);
     }
 }
 public sealed record ReadStateResponse(Guid? LastReadMessageId, DateTime? LastReadAt, long UnreadCount);
@@ -35,10 +37,10 @@ public sealed class ReadStateController(ChatDbContext db, ConversationAuthorizat
     {
         try { await antiforgery.ValidateRequestAsync(HttpContext); }
         catch (AntiforgeryValidationException) { return Problem(statusCode: 400, title: "Invalid CSRF token."); }
-        return await Execute(conversationId, request.MessageId!.Value, cancellationToken);
+        return await Execute(conversationId, request.MessageId!.Value, cancellationToken, request.MembershipId);
     }
 
-    private async Task<IActionResult> Execute(Guid conversationId, Guid? messageId, CancellationToken cancellationToken)
+    private async Task<IActionResult> Execute(Guid conversationId, Guid? messageId, CancellationToken cancellationToken, Guid? membershipId = null)
     {
         // Same ordering as send/membership mutations, including authorization and the response snapshot.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -47,19 +49,14 @@ public sealed class ReadStateController(ChatDbContext db, ConversationAuthorizat
         var access = await authorization.CheckAsync(conversationId, ConversationOperation.Read, cancellationToken: cancellationToken);
         if (!access.Allowed) return Problem(statusCode: access.ErrorStatus, title: access.ErrorTitle);
         var actor = access.UserId!.Value;
+        if (membershipId is not null && !await db.ConversationMembers.AnyAsync(x => x.ConversationId == conversationId
+            && x.UserId == actor && x.MembershipId == membershipId, cancellationToken))
+            return Problem(statusCode: 409, title: "Membership changed. Refresh conversation state.");
         if (messageId is not null)
         {
             if (!await db.Messages.AnyAsync(x => x.ConversationId == conversationId && x.Id == messageId, cancellationToken))
                 return Problem(statusCode: 404, title: "Message not found.");
-            await db.Database.ExecuteSqlInterpolatedAsync($"""
-                UPDATE conversations."ConversationMembers" AS member SET "LastReadMessageId" = {messageId.Value}
-                FROM messages."Messages" AS target
-                WHERE member."ConversationId" = {conversationId} AND member."UserId" = {actor}
-                    AND target."ConversationId" = member."ConversationId" AND target."Id" = {messageId.Value}
-                    AND (member."LastReadMessageId" IS NULL OR EXISTS (
-                        SELECT 1 FROM messages."Messages" AS previous WHERE previous."Id" = member."LastReadMessageId"
-                        AND (target."CreatedAt", target."Id") > (previous."CreatedAt", previous."Id")))
-                """, cancellationToken);
+            await ReceiptProgress.Advance(db, conversationId, actor, messageId.Value, true, cancellationToken);
         }
         var state = await db.Database.SqlQuery<ReadStateResponse>($"""
             SELECT member."LastReadMessageId", anchor."CreatedAt" AS "LastReadAt",
