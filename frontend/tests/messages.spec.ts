@@ -175,6 +175,7 @@ test('conversation access rejection leaves the authenticated transport reusable'
   socket.close()
   await expect(panel(page).getByRole('alert')).toContainText('Δεν έχεις πλέον πρόσβαση')
   await page.getByRole('link', { name: 'Realtime Chat' }).click()
+  await expect(page.getByRole('heading', { name: /Καλώς ήρθες/ })).toBeVisible()
   await page.route(`**/api/conversations/${group}/read-state`, route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 0 } }))
   await page.evaluate(id => { location.hash = `/conversations/${id}` }, group)
   await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
