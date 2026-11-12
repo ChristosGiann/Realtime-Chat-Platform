@@ -32,6 +32,7 @@ export function MessagingPanel({ id }: { id: string }) {
   const [error, setError] = useState('')
   const [sendError, setSendError] = useState('')
   const [live, setLive] = useState<LiveStatus>('connecting')
+  const [typingUsers, setTypingUsers] = useState<string[]>([])
   const active = useRef<AbortController | null>(null)
   const alive = useRef(false)
   const mutation = useRef(false)
@@ -53,6 +54,7 @@ export function MessagingPanel({ id }: { id: string }) {
     let readVersion = 0
     const connect = () => realtime?.subscribe(id, {
       status: setLive,
+      typing: setTypingUsers,
       validate: async signal => { await messagesApi.readState(id, signal) },
       rejected: cause => { fail(cause); window.dispatchEvent(new Event('conversation-resynced')) },
       message: message => {
@@ -115,7 +117,7 @@ export function MessagingPanel({ id }: { id: string }) {
       const saved = await messagesApi.send(id, draft)
       if (!alive.current) return
       setItems(previous => mergeMessages([...previous, { ...saved, sender: { userId: saved.senderId, displayName: user?.displayName ?? user?.userName ?? null, avatarUrl: user?.avatarUrl ?? null } }]))
-      setPending(null); setBody('')
+      realtime?.typing(id, false); setPending(null); setBody('')
     } catch (cause) {
       if (!alive.current) return
       setSendError(messagingError(cause))
@@ -145,8 +147,11 @@ export function MessagingPanel({ id }: { id: string }) {
       <strong>{item.sender.displayName ?? 'Χρήστης'}</strong> <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString('el-GR')}</time>
       <p className="message-body">{item.body}</p>
     </li>)}</ol>
+    {typingUsers.length > 0 && !unavailable && <p role="status" aria-label="Πληκτρολόγηση">{typingUsers.length === 1 ? 'Ένας χρήστης πληκτρολογεί…' : `${typingUsers.length} χρήστες πληκτρολογούν…`}</p>}
     {!unavailable && <form onSubmit={send}><div className="field"><label htmlFor={`message-${id}`}>Νέο μήνυμα</label>
-      <textarea id={`message-${id}`} value={body} maxLength={4000} disabled={busy || pending !== null} onChange={event => { setBody(event.target.value); setSendError('') }} />
+      <textarea id={`message-${id}`} value={body} maxLength={4000} disabled={busy || pending !== null}
+        onBlur={() => realtime?.typing(id, false)}
+        onChange={event => { setBody(event.target.value); setSendError(''); realtime?.typing(id, event.target.value.trim().length > 0) }} />
       <p>{body.length}/4000</p></div>
       {sendError && <p role="alert">{sendError}</p>}
       {pending && !sending && <p>Η αποστολή δεν επιβεβαιώθηκε. Επανάλαβε το ίδιο μήνυμα με ασφάλεια πριν γράψεις άλλο.</p>}
