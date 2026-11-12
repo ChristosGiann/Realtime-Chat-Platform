@@ -44,6 +44,9 @@ jobs:
   frontend:
     name: Frontend lint and build
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --ipc=host --init
 
     defaults:
       run:
@@ -68,9 +71,6 @@ jobs:
 
       - name: Build frontend
         run: npm run build
-      - name: Install Chromium for UI tests
-        timeout-minutes: 5
-        run: bash ../.github/scripts/install-chromium.sh
 
       - name: Run frontend browser tests
         run: npm run test:ui
@@ -78,6 +78,9 @@ jobs:
   stage1-e2e:
     name: Stage 1–4 browser API PostgreSQL and SignalR
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --ipc=host --init
     services:
       postgres:
         image: postgres:18
@@ -93,7 +96,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      E2E_CONNECTION_STRING: Host=localhost;Port=5432;Database=stage1_e2e;Username=stage1_test;Password=stage1_test_only
+      E2E_CONNECTION_STRING: Host=postgres;Port=5432;Database=stage1_e2e;Username=stage1_test;Password=stage1_test_only
     defaults:
       run:
         working-directory: frontend
@@ -114,8 +117,5 @@ jobs:
         run: npm ci
       - name: Build production frontend
         run: npm run build
-      - name: Install Chromium
-        timeout-minutes: 5
-        run: bash ../.github/scripts/install-chromium.sh
       - name: Migrate clean database and verify real browser flows
         run: npm run test:e2e
