@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page, WebSocketRoute } from '@playwright/test'
+import { receiptMocks } from './receipt-mocks'
 
 const owner = '11111111-1111-1111-1111-111111111111'
 const group = '44444444-4444-4444-4444-444444444444'
@@ -7,6 +8,7 @@ const message = (id: string, body: string, createdAt = '2026-01-01T00:00:00.1234
 const latest = message('99999999-1111-1111-1111-111111111111', '<script>hello</script>')
 const older = message('11111111-2222-2222-2222-222222222222', 'Older text', '2026-01-01T00:00:00.123455Z')
 async function setup(page: Page) {
+  await receiptMocks(page, owner)
   await page.route('**/api/auth/me', route => route.fulfill({ json: { id: owner, userName: 'alice', email: 'alice@example.test', displayName: 'Alice' } }))
   await page.route('**/api/auth/csrf', route => route.fulfill({ json: { requestToken: 'message-token' } }))
   const summary = { id: group, type: 'Group', name: 'Messaging group', createdAt: latest.createdAt, myRole: 'Owner', memberCount: 1 }
@@ -16,6 +18,97 @@ async function setup(page: Page) {
   await page.route(`**/api/conversations/${group}/read-state`, route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 2 } }))
 }
 const panel = (page: Page) => page.getByRole('region', { name: 'Μηνύματα συνομιλίας' })
+
+test('direct receipts use durable snapshots, ignore stale event payloads and recover after reconnect', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  const anchor = { messageId: latest.id, createdAt: latest.createdAt }
+  const state = { conversationId: group, conversationType: 'Direct', rosterVersion: 'one', myMembershipId: 'me', nextOffset: null,
+    items: [{ userId: owner, membershipId: 'me', delivered: anchor, read: null as typeof anchor | null },
+      { userId: 'bob', membershipId: 'bob-one', delivered: null as typeof anchor | null, read: null as typeof anchor | null }] }
+  let queries = 0
+  await page.route(`**/api/conversations/${group}/receipts?*`, route => { queries++; return route.fulfill({ json: state }) })
+  await page.route(`**/api/conversations/${group}/messages?*`, route => route.fulfill({ json: { items: [latest], nextCursor: null } }))
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  const status = page.locator(`[data-message-id="${latest.id}"]`).getByLabel('Κατάσταση μηνύματος')
+  await expect(status).toHaveText('Sent')
+  const before = queries
+  socket.event('ReceiptAdvanced', { conversationId: group, member: { ...state.items[1], read: anchor, delivered: anchor } })
+  await expect.poll(() => queries).toBeGreaterThan(before)
+  await expect(status).toHaveText('Sent')
+  state.items[1].delivered = { messageId: older.id, createdAt: older.createdAt }
+  socket.event('ReceiptAdvanced', { conversationId: group })
+  await expect(status).toHaveText('Sent') // One microsecond older must not cover the latest message.
+  state.items[1].delivered = anchor
+  socket.event('ReceiptAdvanced', { conversationId: group })
+  await expect(status).toHaveText('Delivered')
+  await page.clock.install(); socket.close()
+  await expect(page.getByLabel('Παρουσία συνομιλίας')).toContainText('άγνωστη')
+  state.items[1].read = anchor // event missed while disconnected
+  await page.clock.fastForward(1200)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await expect(status).toHaveText('Read')
+  socket.event('ReceiptAdvanced', { conversationId: group, member: { ...state.items[1], delivered: null, read: null } })
+  await expect(status).toHaveText('Read')
+})
+
+test('delivery waits for a complete REST prefix and never marks read automatically', async ({ page }) => {
+  await setup(page); await liveSocket(page)
+  const acknowledgments: unknown[] = [], reads: unknown[] = []
+  let release!: () => void
+  let requestedOlder = false
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route(`**/api/conversations/${group}/messages?*`, async route => {
+    const old = new URL(route.request().url()).searchParams.has('cursor')
+    if (old) { requestedOlder = true; await gate }
+    await route.fulfill({ json: { items: old ? [older] : [latest], nextCursor: old ? null : 'older-page' } })
+  })
+  await page.route(`**/api/conversations/${group}/delivery-state`, route => {
+    acknowledgments.push(route.request().postDataJSON()); return route.fulfill({ json: {} })
+  })
+  await page.route(`**/api/conversations/${group}/read-state`, route => {
+    if (route.request().method() === 'PUT') reads.push(route.request().postDataJSON())
+    return route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 2 } })
+  })
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.locator(`[data-message-id="${latest.id}"]`)).toBeVisible()
+  await expect.poll(() => requestedOlder).toBe(true)
+  expect(acknowledgments).toEqual([]); expect(reads).toEqual([])
+  release()
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  expect(acknowledgments).toEqual([{ messageId: latest.id, membershipId: 'membership-owner' }]); expect(reads).toEqual([])
+  await page.getByRole('button', { name: 'Σήμανση ιστορικού ως αναγνωσμένου' }).click()
+  await expect.poll(() => reads).toEqual([{ messageId: latest.id, membershipId: 'membership-owner' }])
+})
+
+test('group counts follow current incarnations and own revocation clears protected state', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  const anchor = { messageId: latest.id, createdAt: latest.createdAt }
+  const state = { conversationId: group, conversationType: 'Group', rosterVersion: 'one', myMembershipId: 'me', nextOffset: null,
+    items: [{ userId: owner, membershipId: 'me', delivered: anchor as typeof anchor | null, read: null as typeof anchor | null },
+      { userId: 'bob', membershipId: 'bob-one', delivered: anchor as typeof anchor | null, read: anchor as typeof anchor | null },
+      { userId: 'carol', membershipId: 'carol-one', delivered: anchor as typeof anchor | null, read: null as typeof anchor | null }] }
+  await page.route(`**/api/conversations/${group}/receipts?*`, route => route.fulfill({ json: state }))
+  await page.route(`**/api/conversations/${group}/messages?*`, route => route.fulfill({ json: { items: [latest], nextCursor: null } }))
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  const status = page.locator(`[data-message-id="${latest.id}"]`).getByLabel('Κατάσταση μηνύματος')
+  await expect(status).toContainText('Delivered 2/2 · Read 1/2')
+  state.items = [state.items[0], { userId: 'bob', membershipId: 'bob-two', delivered: null, read: null }]; state.rosterVersion = 'two'
+  socket.event('ConversationMembershipChanged', { conversationId: group })
+  await expect(status).toContainText('Delivered 0/1 · Read 0/1')
+  socket.event('ReceiptAdvanced', { conversationId: group, member: { userId: 'bob', membershipId: 'bob-one', delivered: anchor, read: anchor } })
+  await expect(status).toContainText('Delivered 0/1 · Read 0/1')
+  socket.event('ConversationAccessRevoked', { conversationId: group, membershipId: 'old-me' })
+  await expect(page.getByLabel('Νέο μήνυμα', { exact: true })).toBeVisible()
+  state.items = [state.items[0]]; state.rosterVersion = 'three'
+  socket.event('ConversationMembershipChanged', { conversationId: group })
+  await expect(status).toContainText('χωρίς άλλα τρέχοντα μέλη')
+  socket.event('ConversationAccessRevoked', { conversationId: group, membershipId: 'me' })
+  await expect(page.getByLabel('Νέο μήνυμα', { exact: true })).toHaveCount(0)
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(0)
+  await expect(page.getByLabel('Παρουσία συνομιλίας')).toHaveCount(0)
+})
 
 async function liveSocket(page: Page, failInitial = false, deferSubscribe = false) {
   let socket: WebSocketRoute
@@ -45,6 +138,7 @@ async function liveSocket(page: Page, failInitial = false, deferSubscribe = fals
           if (['Subscribe', 'Unsubscribe'].includes(frame.target)) invocations.push(`${frame.target}:${frame.arguments[0]}`)
           const complete = () => ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId,
             ...(frame.target === 'GetTyping' ? { result: { conversationId: frame.arguments[0], items: [], version: 0 } } : {}),
+            ...(frame.target === 'GetPresence' ? { result: { conversationId: frame.arguments[0], items: [{ userId: owner, isOnline: true }, { userId: 'bob', isOnline: false }], nextOffset: null, version: 0 } } : {}),
           }) + '\u001e')
           if (deferSubscribe && frame.target === 'Subscribe') { deferSubscribe = false; releaseSubscribe = complete }
           else complete()
@@ -57,6 +151,7 @@ async function liveSocket(page: Page, failInitial = false, deferSubscribe = fals
     closed: () => closed,
     invocations,
     typingCalls,
+    event: (target: string, value: unknown) => socket.send(JSON.stringify({ type: 1, target, arguments: [value] }) + '\u001e'),
     typing: (value: unknown) => socket.send(JSON.stringify({ type: 1, target: 'TypingChanged', arguments: [value] }) + '\u001e'),
     releaseSubscribe: () => releaseSubscribe(),
     emit: (value: unknown) => socket.send(JSON.stringify({ type: 1, target: 'MessageCreated', arguments: [value] }) + '\u001e'),
@@ -255,7 +350,7 @@ test('history is safe text, older pages deduplicate and explicit read uses loade
     ? { items: [latest, older], nextCursor: null } : { items: [latest], nextCursor: 'opaque+/=' } }))
   await page.route(`**/api/conversations/${group}/read-state`, route => {
     if (route.request().method() === 'PUT') {
-      expect(route.request().postDataJSON()).toEqual({ messageId: latest.id })
+      expect(route.request().postDataJSON()).toEqual({ messageId: latest.id, membershipId: 'membership-owner' })
       expect(route.request().headers()['x-csrf-token']).toBe('message-token')
       return route.fulfill({ json: { lastReadMessageId: latest.id, lastReadAt: latest.createdAt, unreadCount: 0 } })
     }

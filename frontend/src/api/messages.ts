@@ -10,7 +10,7 @@ export const messagesApi = {
   history: (id: string, cursor: string | null = null, signal?: AbortSignal) => request<HistoryPage>(`${path(id)}/messages?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal }, true),
   send: (id: string, body: SendRequest) => mutate<Message>(`${path(id)}/messages`, 'POST', body),
   readState: (id: string, signal?: AbortSignal) => request<ReadState>(`${path(id)}/read-state`, { signal }, true),
-  advance: (id: string, messageId: string) => mutate<ReadState>(`${path(id)}/read-state`, 'PUT', { messageId }),
+  advance: (id: string, messageId: string, membershipId?: string) => mutate<ReadState>(`${path(id)}/read-state`, 'PUT', { messageId, membershipId }),
 }
 
 // Follow stable REST cursors until the last synchronized durable anchor (or the end).

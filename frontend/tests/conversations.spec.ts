@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { receiptMocks } from './receipt-mocks'
 const owner = '11111111-1111-1111-1111-111111111111'
 const bob = '22222222-2222-2222-2222-222222222222'
 const carol = '33333333-3333-3333-3333-333333333333'
@@ -8,6 +9,7 @@ const profile = (userId: string, displayName: string) => ({ userId, displayName,
 const member = (userId: string, displayName: string, role = 'Member') => ({ userId, role, joinedAt: '2026-01-01T00:00:00Z', profile: profile(userId, displayName) })
 const summary = { id: group, type: 'Group', name: 'Η ομάδα μας', createdAt: '2026-01-01T00:00:00Z', myRole: 'Owner', memberCount: 2 }
 async function session(page: Page) {
+  await receiptMocks(page, owner)
   await page.route('**/api/conversations/*/messages?*', route => route.fulfill({ json: { items: [], nextCursor: null } }))
   await page.route('**/api/conversations/*/read-state', route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 0 } }))
   await page.route('**/api/auth/me', route => route.fulfill({ json: { id: owner, userName: 'alice', email: 'alice@example.test', displayName: 'Alice' } }))
