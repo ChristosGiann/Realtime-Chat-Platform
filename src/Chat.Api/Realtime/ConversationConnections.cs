@@ -17,6 +17,7 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
     private long subscriptionVersion;
     private static bool Active(Connection connection) => connection.ExpiresAt is null || connection.ExpiresAt > DateTimeOffset.UtcNow;
     public bool IsActive(string id) => connections.TryGetValue(id, out var connection) && Active(connection);
+    public IReadOnlyList<string> ForUser(Guid user) => connections.Where(x => x.Value.UserId == user && Active(x.Value)).Select(x => x.Key).ToArray();
     public long? Subscription(string id, Guid conversation) => connections.TryGetValue(id, out var connection)
         && Active(connection) && connection.Conversations.TryGetValue(conversation, out var generation) ? generation : null;
 

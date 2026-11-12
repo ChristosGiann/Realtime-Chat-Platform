@@ -20,6 +20,8 @@ builder.Services.AddSignalR(options =>
 });
 builder.Services.AddScoped<ChatSessionValidator>();
 builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
+builder.Services.AddSingleton<IReceiptBroadcaster, ReceiptBroadcaster>();
+builder.Services.AddSingleton<MembershipNotifications>();
 builder.Services.AddSingleton<ConversationConnections>();
 builder.Services.AddSingleton<ConversationPresence>();
 builder.Services.AddSingleton(TimeProvider.System);

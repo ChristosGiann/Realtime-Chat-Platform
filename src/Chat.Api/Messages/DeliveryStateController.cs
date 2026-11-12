@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Chat.Api.Authorization;
 using Chat.Api.Conversations;
 using Chat.Api.Infrastructure.Persistence;
+using Chat.Api.Realtime;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -27,7 +28,8 @@ public sealed record DeliveryStateResponse(Guid MembershipId, Guid? LastDelivere
 [Route("api/conversations/{conversationId:guid}/delivery-state")]
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class DeliveryStateController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery) : ControllerBase
+public sealed class DeliveryStateController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery,
+    IReceiptBroadcaster broadcaster, ILogger<DeliveryStateController> logger) : ControllerBase
 {
     [HttpGet]
     public Task<IActionResult> Get(Guid conversationId, CancellationToken token) => Execute(conversationId, null, token);
@@ -46,13 +48,14 @@ public sealed class DeliveryStateController(ChatDbContext db, ConversationAuthor
         var access = await authorization.CheckAsync(conversation, ConversationOperation.Read, cancellationToken: token);
         if (!access.Allowed) return Problem(statusCode: access.ErrorStatus, title: access.ErrorTitle);
         var actor = access.UserId!.Value;
+        var changed = false;
         var membership = await db.ConversationMembers.Where(x => x.ConversationId == conversation && x.UserId == actor).Select(x => x.MembershipId).SingleAsync(token);
         if (request is not null)
         {
             if (membership != request.MembershipId) return Problem(statusCode: 409, title: "Membership changed. Refresh conversation state.");
             if (!await db.Messages.AnyAsync(x => x.ConversationId == conversation && x.Id == request.MessageId, token))
                 return Problem(statusCode: 404, title: "Message not found.");
-            await ReceiptProgress.Advance(db, conversation, actor, request.MessageId!.Value, false, token);
+            changed = await ReceiptProgress.Advance(db, conversation, actor, request.MessageId!.Value, false, token);
         }
         var state = await db.Database.SqlQuery<DeliveryStateResponse>($"""
             SELECT member."MembershipId", member."LastDeliveredMessageId", anchor."CreatedAt" AS "LastDeliveredAt"
@@ -61,6 +64,7 @@ public sealed class DeliveryStateController(ChatDbContext db, ConversationAuthor
             WHERE member."ConversationId" = {conversation} AND member."UserId" = {actor}
             """).SingleAsync(token);
         await transaction.CommitAsync(token);
+        if (changed) await PostCommitNotification.Send(token => broadcaster.Advanced(conversation, membership, token), logger);
         return Ok(state);
     }
 }
