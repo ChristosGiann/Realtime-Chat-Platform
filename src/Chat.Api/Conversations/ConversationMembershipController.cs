@@ -13,7 +13,8 @@ namespace Chat.Api.Conversations;
 [Route("api/conversations/{conversationId:guid}")]
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class ConversationMembershipController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery, ConversationConnections connections) : ControllerBase
+public sealed class ConversationMembershipController(ChatDbContext db, ConversationAuthorization authorization, IAntiforgery antiforgery,
+    ConversationConnections connections, MembershipNotifications notifications, ILogger<ConversationMembershipController> logger) : ControllerBase
 {
     [HttpPut("members/{userId:guid}")]
     public Task<IActionResult> Add(Guid conversationId, Guid userId, CancellationToken cancellationToken) =>
@@ -68,6 +69,8 @@ public sealed class ConversationMembershipController(ChatDbContext db, Conversat
             db.ChangeTracker.Clear();
             return Problem(statusCode: 404, title: "User not found.");
         }
+        await PostCommitNotification.Send(token => notifications.Changed(conversationId, target,
+            operation == ConversationOperation.AddMember ? null : member!.MembershipId, token), logger);
         return NoContent();
     }
 

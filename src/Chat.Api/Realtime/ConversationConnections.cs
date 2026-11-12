@@ -16,6 +16,7 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
     private long version;
     private static bool Active(Connection connection) => connection.ExpiresAt is null || connection.ExpiresAt > DateTimeOffset.UtcNow;
     public bool IsActive(string id) => connections.TryGetValue(id, out var connection) && Active(connection);
+    public IReadOnlyList<string> ForUser(Guid user) => connections.Where(x => x.Value.UserId == user && Active(x.Value)).Select(x => x.Key).ToArray();
 
     public PresenceChange? Connected(string id, Guid userId, Action abort, DateTimeOffset? expiresAt = null)
     {
