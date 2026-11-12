@@ -17,10 +17,12 @@ public sealed class Conversation
 
 public sealed class ConversationMember
 {
+    public Guid MembershipId { get; set; } = Guid.NewGuid();
     public Guid ConversationId { get; set; }
     public Guid UserId { get; set; }
     public ConversationMemberRole Role { get; set; } = ConversationMemberRole.Member;
     public DateTime JoinedAt { get; set; }
     public Guid? LastReadMessageId { get; set; }
+    public Guid? LastDeliveredMessageId { get; set; }
     public Conversation Conversation { get; set; } = null!;
 }
