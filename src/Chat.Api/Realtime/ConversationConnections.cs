@@ -8,15 +8,18 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
 {
     private sealed record Connection(Guid UserId, Action Abort, DateTimeOffset? ExpiresAt)
     {
-        public ConcurrentDictionary<Guid, byte> Conversations { get; } = new();
+        public ConcurrentDictionary<Guid, long> Conversations { get; } = new();
     }
     private readonly ConcurrentDictionary<string, Connection> connections = new();
     private readonly object presenceLock = new();
     private readonly Dictionary<Guid, PresenceChange> presence = new();
     private long version;
+    private long subscriptionVersion;
     private static bool Active(Connection connection) => connection.ExpiresAt is null || connection.ExpiresAt > DateTimeOffset.UtcNow;
     public bool IsActive(string id) => connections.TryGetValue(id, out var connection) && Active(connection);
     public IReadOnlyList<string> ForUser(Guid user) => connections.Where(x => x.Value.UserId == user && Active(x.Value)).Select(x => x.Key).ToArray();
+    public long? Subscription(string id, Guid conversation) => connections.TryGetValue(id, out var connection)
+        && Active(connection) && connection.Conversations.TryGetValue(conversation, out var generation) ? generation : null;
 
     public PresenceChange? Connected(string id, Guid userId, Action abort, DateTimeOffset? expiresAt = null)
     {
@@ -61,7 +64,7 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
     {
         if (!connections.TryGetValue(id, out var connection)) throw new HubException("Connection unavailable.");
         await hub.Groups.AddToGroupAsync(id, ConversationGroup.Name(conversation), token);
-        connection.Conversations[conversation] = 0;
+        connection.Conversations.GetOrAdd(conversation, _ => Interlocked.Increment(ref subscriptionVersion));
     }
     public async Task Unsubscribe(string id, Guid conversation, CancellationToken token)
     {
