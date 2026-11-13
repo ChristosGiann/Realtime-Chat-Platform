@@ -285,6 +285,9 @@ export class RealtimeSession {
   private online = () => {
     if (this.timer) clearTimeout(this.timer)
     this.timer = undefined
+    // The online event can precede the first successful fetch. Start a fresh
+    // short retry schedule instead of retaining the offline 30s backoff.
+    this.attempts = 0
     if (this.connection.state === HubConnectionState.Disconnected) void this.connect()
   }
   private offline = () => { void this.connection.stop() }

@@ -92,13 +92,15 @@ function CreateConversation({ onCreated }: { onCreated: (id: string) => void }) 
 
 function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?: boolean) => void }) {
   const [details, setDetails] = useState<Details | null>(null)
-  const [busy, setBusy] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [mutating, setMutating] = useState(false)
+  const busy = loading || mutating
   const [error, setError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
   const active = useRef<AbortController | null>(null)
   async function load(offset = 0) {
     active.current?.abort(); const controller = new AbortController(); active.current = controller
-    setBusy(true); setError('')
+    setLoading(true); setError('')
     try {
       const result = await conversationsApi.details(id, offset, controller.signal)
       if (controller.signal.aborted) return
@@ -106,7 +108,7 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
       setUnavailable(false)
     } catch (cause) {
       if (!controller.signal.aborted) { setError(conversationError(cause)); setDetails(null) }
-    } finally { if (!controller.signal.aborted) setBusy(false) }
+    } finally { if (!controller.signal.aborted) setLoading(false) }
   }
   const refreshAfterRecovery = useEffectEvent(() => { void load() })
   useEffect(() => {
@@ -114,18 +116,18 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
     void conversationsApi.details(id, 0, controller.signal).then(result => {
       if (!controller.signal.aborted) setDetails(result)
     }).catch(cause => { if (!controller.signal.aborted) setError(conversationError(cause)) })
-      .finally(() => { if (!controller.signal.aborted) setBusy(false) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     const recovered = () => { refreshAfterRecovery() }
     window.addEventListener('conversation-resynced', recovered)
     return () => { controller.abort(); active.current?.abort(); window.removeEventListener('conversation-resynced', recovered) }
   }, [id])
   async function change(operation: () => Promise<void>, left = false) {
-    setBusy(true); setError('')
+    setMutating(true); setError('')
     try { await operation(); onChanged(left) }
     catch (cause) {
       setError(conversationError(cause))
       if (cause instanceof ApiError && [403, 404].includes(cause.status)) setUnavailable(true)
-    } finally { setBusy(false) }
+    } finally { setMutating(false) }
   }
   return <section className="panel conversation-details" aria-label="Στοιχεία συνομιλίας">
     {busy && <p role="status">Φόρτωση ή αποθήκευση…</p>}

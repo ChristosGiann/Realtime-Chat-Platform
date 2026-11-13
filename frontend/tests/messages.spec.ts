@@ -277,6 +277,28 @@ test('conversation access rejection leaves the authenticated transport reusable'
   expect(socket.connections()).toBe(2)
 })
 
+test('network restoration resets offline backoff when the first online fetch still fails', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.clock.install()
+  let attempts = 0, offline = true
+  await page.route('**/api/auth/me', route => {
+    attempts++
+    return route.fulfill(offline ? { status: 503, json: {} } : { json: { id: owner, userName: 'alice', email: 'alice@example.test', displayName: 'Alice' } })
+  })
+  socket.close(); await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Επανασύνδεση')
+  for (const [index, elapsed] of [1100, 2100, 5100].entries()) {
+    await page.clock.fastForward(elapsed); await expect.poll(() => attempts).toBe(index + 1)
+  }
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect.poll(() => attempts).toBe(4)
+  offline = false
+  await page.clock.fastForward(1100)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  expect(socket.connections()).toBe(2)
+})
+
 test('initial SignalR failure retries without discarding durable history', async ({ page }) => {
   await setup(page); await liveSocket(page, true)
   await page.route(`**/api/conversations/${group}/messages?*`, route => route.fulfill({ json: { items: [latest], nextCursor: null } }))

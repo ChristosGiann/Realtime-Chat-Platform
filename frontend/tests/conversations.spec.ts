@@ -109,6 +109,24 @@ test('member can leave and list is refreshed', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Επίλεξε συνομιλία' })).toBeVisible()
 })
 
+test('membership refresh cannot enable another mutation before the pending response completes', async ({ page }) => {
+  await session(page); await list(page, [summary]); await search(page, [profile(carol, 'Carol')])
+  const members = [member(owner, 'Alice', 'Owner'), member(bob, 'Bob')]
+  await page.route(`**/api/conversations/${group}?*`, route => route.fulfill({ json: { ...summary, members, nextOffset: null } }))
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route(`**/api/conversations/${group}/members/${carol}`, async route => {
+    members.push(member(carol, 'Carol'))
+    await page.evaluate(() => window.dispatchEvent(new Event('conversation-resynced')))
+    await gate; await route.fulfill({ status: 204 })
+  })
+  await page.goto(`/#/conversations/${group}`); await find(page, 'Carol')
+  await expect(page.getByRole('link', { name: 'Carol', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toBeDisabled()
+  release()
+  await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toBeEnabled()
+})
+
 test('list and member pages append, fit mobile and missing profile uses ID', async ({ page }, testInfo) => {
   await session(page)
   await page.route('**/api/conversations?*', route => route.fulfill({ json: new URL(route.request().url()).searchParams.get('offset') === '0'
