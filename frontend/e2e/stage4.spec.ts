@@ -80,8 +80,8 @@ test('real membership removal revokes two tabs and rejoin recovers through autho
     await sendUi(page, 'After removal secret')
     for (const tab of [first, second]) {
       await expect(panel(tab).getByText('After removal secret', { exact: true })).toHaveCount(0)
-      await panel(tab).getByRole('button', { name: 'Ανανέωση μηνυμάτων' }).click()
       await expect(tab.getByLabel('Νέο μήνυμα', { exact: true })).toHaveCount(0)
+      await expect(panel(tab).locator('[data-message-id]')).toHaveCount(0)
     }
     expect((await page.request.put(`${api}/api/conversations/${id}/members/${member.id}`, { headers })).status()).toBe(204)
     for (const tab of [first, second]) { await tab.reload(); await expect(live(tab)).toHaveText('Ζωντανή σύνδεση') }

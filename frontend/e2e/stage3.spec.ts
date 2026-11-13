@@ -104,11 +104,12 @@ test('real group removal revokes messaging and read state; rejoin starts fresh p
     const sent = await page.request.post(messages(id), { headers, data: { clientMessageId: randomUUID(), body: 'Retained group history' } })
     expect(sent.status()).toBe(201); const saved = await sent.json()
     await memberPage.goto(`/#/conversations/${id}`)
+    await expect(memberPage.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
     await expect(panel(memberPage).getByText('Μη αναγνωσμένα: 1')).toBeVisible()
     await panel(memberPage).getByRole('button', { name: 'Σήμανση ιστορικού ως αναγνωσμένου' }).click()
     await expect(panel(memberPage).getByText('Μη αναγνωσμένα: 0')).toBeVisible()
     expect((await page.request.delete(`${api}/api/conversations/${id}/members/${member.id}`, { headers })).status()).toBe(204)
-    await panel(memberPage).getByRole('button', { name: 'Ανανέωση μηνυμάτων' }).click()
+    // Stage 5 revocation now clears the protected view without a manual refresh.
     await expect(memberPage.getByLabel('Νέο μήνυμα', { exact: true })).toHaveCount(0)
     await expect(panel(memberPage).locator('[data-message-id]')).toHaveCount(0)
     expect((await memberPage.request.put(readState(id), { headers: memberHeaders, data: { messageId: saved.id } })).status()).toBe(404)

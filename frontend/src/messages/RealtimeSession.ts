@@ -11,7 +11,11 @@ export type ConversationCallbacks = {
   rejected: (cause: unknown) => void
   subscribed: (signal: AbortSignal) => Promise<void>
   typing?: (users: string[]) => void
+  contextChanged?: (kind: 'receipt' | 'presence' | 'membership') => void
+  revoked?: (membershipId: string) => void
 }
+export type PresenceMember = { userId: string; isOnline: boolean }
+type PresencePage = { conversationId: string; items: PresenceMember[]; nextOffset: number | null; version: number }
 type TypingEvent = { conversationId: string; userId: string; expiresInMilliseconds: number; version: number }
 type TypingSnapshot = { conversationId: string; items: Omit<TypingEvent, 'conversationId' | 'version'>[]; version: number }
 type Consumer = { callbacks: ConversationCallbacks; controller: AbortController; ready: number }
@@ -42,6 +46,19 @@ export class RealtimeSession {
 
   constructor(userId: string) {
     this.userId = userId
+    for (const [event, kind] of [['ReceiptAdvanced', 'receipt'], ['PresenceChanged', 'presence'], ['ConversationMembershipChanged', 'membership']] as const) {
+      this.connection.on(event, (value: { conversationId: string }) => {
+        const entry = this.subscriptions.get(value?.conversationId)
+        if (!entry || !this.current(entry, this.transport) || entry.receiving !== this.transport) return
+        if (kind === 'membership') this.clearTyping(entry)
+        for (const consumer of entry.consumers) consumer.callbacks.contextChanged?.(kind)
+      })
+    }
+    this.connection.on('ConversationAccessRevoked', (value: { conversationId: string; membershipId: string }) => {
+      const entry = this.subscriptions.get(value?.conversationId)
+      if (entry && this.current(entry, this.transport) && typeof value.membershipId === 'string')
+        for (const consumer of entry.consumers) consumer.callbacks.revoked?.(value.membershipId)
+    })
     this.connection.on('MessageCreated', (message: Message) => {
       const entry = this.subscriptions.get(message?.conversationId)
       if (!this.running || !entry || entry.receiving !== this.transport || typeof message.id !== 'string'
@@ -105,6 +122,21 @@ export class RealtimeSession {
       entry.typingSent = false
       void this.connection.invoke('SetTyping', id, false).catch(() => {})
     }
+  }
+  async presence(id: string, signal: AbortSignal): Promise<PresenceMember[]> {
+    const epoch = this.transport, entry = this.subscriptions.get(id)
+    const items: PresenceMember[] = []
+    let offset: number | null = 0
+    do {
+      if (!entry || !this.current(entry, epoch) || signal.aborted) throw new Error('Connection changed')
+      const page: PresencePage = await this.connection.invoke('GetPresence', id, offset, 100)
+      if (!this.current(entry, epoch) || signal.aborted) throw new Error('Connection changed')
+      if (page?.conversationId !== id || !Array.isArray(page.items)) throw new Error('Invalid presence snapshot')
+      items.push(...page.items)
+      if (page.nextOffset !== null && page.nextOffset <= offset) throw new Error('Invalid presence cursor')
+      offset = page.nextOffset
+    } while (offset !== null)
+    return items
   }
   private applyTyping(entry: Subscription, event: TypingEvent) {
     if (typeof event.userId !== 'string' || event.userId === this.userId || !Number.isSafeInteger(event.version)
@@ -253,6 +285,9 @@ export class RealtimeSession {
   private online = () => {
     if (this.timer) clearTimeout(this.timer)
     this.timer = undefined
+    // The online event can precede the first successful fetch. Start a fresh
+    // short retry schedule instead of retaining the offline 30s backoff.
+    this.attempts = 0
     if (this.connection.state === HubConnectionState.Disconnected) void this.connect()
   }
   private offline = () => { void this.connection.stop() }

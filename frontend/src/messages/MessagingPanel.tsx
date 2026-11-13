@@ -6,6 +6,10 @@ import type { HistoryMessage, ReadState, SendRequest } from '../api/messages'
 import { useAuth } from '../auth/context'
 import { useRealtime } from './realtimeContext'
 import type { LiveStatus } from './RealtimeSession'
+import type { PresenceMember } from './RealtimeSession'
+import { covers, receiptsApi } from '../api/receipts'
+import type { ReceiptSnapshot } from '../api/receipts'
+import { ReceiptSession } from './ReceiptSession'
 
 // Preserve PostgreSQL microseconds; JavaScript Date would truncate timestamp ties to milliseconds.
 const timeKey = (value: string) => value.slice(0, 19) + (value.includes('.') ? value.split('.')[1].replace('Z', '') : '').padEnd(7, '0')
@@ -33,6 +37,9 @@ export function MessagingPanel({ id }: { id: string }) {
   const [sendError, setSendError] = useState('')
   const [live, setLive] = useState<LiveStatus>('connecting')
   const [typingUsers, setTypingUsers] = useState<string[]>([])
+  const [receipts, setReceipts] = useState<ReceiptSnapshot | null>(null)
+  const [presence, setPresence] = useState<PresenceMember[] | null>(null)
+  const receiptSession = useRef<ReceiptSession | null>(null)
   const active = useRef<AbortController | null>(null)
   const alive = useRef(false)
   const mutation = useRef(false)
@@ -43,6 +50,8 @@ export function MessagingPanel({ id }: { id: string }) {
     if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) {
       liveStop.current?.()
       setUnavailable(true); setItems([]); setRead(null); setReadTarget(null); setNext(null)
+      receiptSession.current?.stop(); setReceipts(null); setPresence(null); setTypingUsers([])
+      window.dispatchEvent(new Event('conversation-resynced'))
     }
   }
   useEffect(() => {
@@ -52,12 +61,28 @@ export function MessagingPanel({ id }: { id: string }) {
     let stop: (() => void) | undefined
     let anchor: string | null = null
     let readVersion = 0
+    const progress = new ReceiptSession(id, user?.id ?? '', realtime, (state, online) => {
+      if (!controller.signal.aborted) { setReceipts(state); setPresence(online) }
+    }, fail)
+    receiptSession.current = progress
     const connect = () => realtime?.subscribe(id, {
-      status: setLive,
+      status: status => { setLive(status); if (status !== 'connected') { progress.stop(); setPresence(null) } },
       typing: setTypingUsers,
+      contextChanged: kind => {
+        if (kind === 'membership') { progress.invalidate(); window.dispatchEvent(new Event('conversation-resynced')) }
+        else progress.request()
+        if (kind === 'receipt') {
+          const version = ++readVersion
+          void messagesApi.readState(id, controller.signal).then(state => {
+            if (!controller.signal.aborted && version === readVersion) setRead(state)
+          }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
+        }
+      },
+      revoked: membership => progress.invalidate(membership),
       validate: async signal => { await messagesApi.readState(id, signal) },
       rejected: cause => { fail(cause); window.dispatchEvent(new Event('conversation-resynced')) },
       message: message => {
+        progress.request(true)
         setItems(previous => mergeMessages([...previous, { ...message, sender: {
           userId: message.senderId, displayName: message.senderId === user?.id ? user.displayName ?? user.userName : null, avatarUrl: null,
         } }]))
@@ -67,6 +92,7 @@ export function MessagingPanel({ id }: { id: string }) {
         }).catch(cause => { if (!controller.signal.aborted) fail(cause) })
       },
       subscribed: async signal => {
+        await progress.begin(signal)
         const page = await recoverMessages(id, anchor, signal)
         const version = ++readVersion
         const state = await messagesApi.readState(id, signal)
@@ -80,9 +106,10 @@ export function MessagingPanel({ id }: { id: string }) {
         }
       },
     })
-    void Promise.all([messagesApi.history(id, null, controller.signal), messagesApi.readState(id, controller.signal)])
-      .then(([page, state]) => {
+    void Promise.all([messagesApi.history(id, null, controller.signal), messagesApi.readState(id, controller.signal), receiptsApi.snapshot(id, controller.signal)])
+      .then(([page, state, receiptState]) => {
         if (controller.signal.aborted) return
+        progress.seed(receiptState)
         anchor = page.items[0]?.id ?? null
         setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state); setReadTarget(anchor)
         stop = connect(); liveStop.current = stop
@@ -93,14 +120,14 @@ export function MessagingPanel({ id }: { id: string }) {
         }
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => { alive.current = false; controller.abort(); active.current?.abort(); stop?.() }
+    return () => { alive.current = false; controller.abort(); active.current?.abort(); progress.stop(); stop?.() }
   }, [id, realtime, user?.id, user?.displayName, user?.userName])
   async function load(older = false) {
     if (mutation.current) return
     active.current?.abort(); const controller = new AbortController(); active.current = controller
     setLoading(true); setError('')
     try {
-      const [page, state] = await Promise.all([messagesApi.history(id, older ? next : null, controller.signal), messagesApi.readState(id, controller.signal)])
+      const [page, state] = await Promise.all([messagesApi.history(id, older ? next : null, controller.signal), messagesApi.readState(id, controller.signal), receiptSession.current?.manual(controller.signal)])
       if (controller.signal.aborted) return
       setItems(previous => mergeMessages([...previous, ...page.items])); setNext(page.nextCursor); setRead(state); setUnavailable(false)
       if (!older) setReadTarget(page.items[0]?.id ?? null)
@@ -118,6 +145,7 @@ export function MessagingPanel({ id }: { id: string }) {
       if (!alive.current) return
       setItems(previous => mergeMessages([...previous, { ...saved, sender: { userId: saved.senderId, displayName: user?.displayName ?? user?.userName ?? null, avatarUrl: user?.avatarUrl ?? null } }]))
       realtime?.typing(id, false); setPending(null); setBody('')
+      receiptSession.current?.request(true)
     } catch (cause) {
       if (!alive.current) return
       setSendError(messagingError(cause))
@@ -126,19 +154,21 @@ export function MessagingPanel({ id }: { id: string }) {
     } finally { mutation.current = false; if (alive.current) setSending(false) }
   }
   async function markRead() {
-    if (!readTarget || mutation.current || busy || unavailable) return
+    const membership = receiptSession.current?.snapshot?.myMembershipId
+    if (!readTarget || !membership || mutation.current || busy || unavailable) return
     mutation.current = true; setReading(true); setError('')
-    try { const state = await messagesApi.advance(id, readTarget); if (alive.current) setRead(state) }
+    try { const state = await messagesApi.advance(id, readTarget, membership); if (alive.current) { setRead(state); receiptSession.current?.request() } }
     catch (cause) { if (alive.current) fail(cause) }
     finally { mutation.current = false; if (alive.current) setReading(false) }
   }
   return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><h3>Μηνύματα</h3>
+    {!unavailable && <p aria-label="Παρουσία συνομιλίας">{presence === null ? 'Παρουσία: άγνωστη / επανασύνδεση' : `${presence.filter(x => x.userId !== user?.id && x.isOnline).length} online · ${presence.filter(x => x.userId !== user?.id && !x.isOnline).length} offline (άλλα μέλη)`}</p>}
     <p role="status" aria-label="Κατάσταση live σύνδεσης">{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p>
     <button disabled={busy} onClick={() => void load()}>Ανανέωση μηνυμάτων</button>
     {loading && <p role="status">Φόρτωση μηνυμάτων…</p>}
     {error && <p role="alert">{error}</p>}
     {read && <p aria-live="polite">Μη αναγνωσμένα: {read.unreadCount}</p>}
-    {readTarget && !unavailable && <><button disabled={busy} onClick={() => void markRead()}>Σήμανση ιστορικού ως αναγνωσμένου</button>
+    {readTarget && !unavailable && <><button disabled={busy || !receipts} onClick={() => void markRead()}>Σήμανση ιστορικού ως αναγνωσμένου</button>
       <p className="hint">Περιλαμβάνει όλα τα μηνύματα έως το νεότερο που φορτώθηκε από το ιστορικό.</p></>}
     {reading && <p role="status">Αποθήκευση ανάγνωσης…</p>}
     {next && !unavailable && <button disabled={busy} onClick={() => void load(true)}>Παλαιότερα μηνύματα</button>}
@@ -146,8 +176,9 @@ export function MessagingPanel({ id }: { id: string }) {
     <ol className="message-list" aria-label="Ιστορικό μηνυμάτων">{[...items].reverse().map(item => <li key={item.id} data-message-id={item.id}>
       <strong>{item.sender.displayName ?? 'Χρήστης'}</strong> <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString('el-GR')}</time>
       <p className="message-body">{item.body}</p>
+      {item.senderId === user?.id && <p aria-label="Κατάσταση μηνύματος">{receiptLabel(receipts, user.id, item)}</p>}
     </li>)}</ol>
-    {typingUsers.length > 0 && !unavailable && <p role="status" aria-label="Πληκτρολόγηση">{typingUsers.length === 1 ? 'Ένας χρήστης πληκτρολογεί…' : `${typingUsers.length} χρήστες πληκτρολογούν…`}</p>}
+    {typingUsers.some(id => receipts?.items.some(member => member.userId === id)) && !unavailable && <p role="status" aria-label="Πληκτρολόγηση">{typingUsers.filter(id => receipts?.items.some(member => member.userId === id)).length === 1 ? 'Ένας χρήστης πληκτρολογεί…' : `${typingUsers.filter(id => receipts?.items.some(member => member.userId === id)).length} χρήστες πληκτρολογούν…`}</p>}
     {!unavailable && <form onSubmit={send}><div className="field"><label htmlFor={`message-${id}`}>Νέο μήνυμα</label>
       <textarea id={`message-${id}`} value={body} maxLength={4000} disabled={busy || pending !== null}
         onBlur={() => realtime?.typing(id, false)}
@@ -159,4 +190,14 @@ export function MessagingPanel({ id }: { id: string }) {
       <button disabled={busy} type="submit">{pending && !sending ? 'Επανάληψη αποστολής' : 'Αποστολή'}</button>
     </form>}
   </section>
+}
+
+function receiptLabel(state: ReceiptSnapshot | null, sender: string, message: HistoryMessage) {
+  if (!state) return 'Sent · ενημέρωση αποδείξεων…'
+  const recipients = state.items.filter(x => x.userId !== sender)
+  const delivered = recipients.filter(x => covers(x.delivered, message)).length
+  const read = recipients.filter(x => covers(x.read, message)).length
+  if (state.conversationType === 'Direct') return read ? 'Read' : delivered ? 'Delivered' : 'Sent'
+  if (!recipients.length) return 'Sent · χωρίς άλλα τρέχοντα μέλη'
+  return `Sent · Delivered ${delivered}/${recipients.length} · Read ${read}/${recipients.length} (τρέχοντα μέλη)`
 }

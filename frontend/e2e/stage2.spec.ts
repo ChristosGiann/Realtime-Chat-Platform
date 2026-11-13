@@ -100,7 +100,10 @@ test('real Group UI creation, owner add/remove, member leave and cross-user reje
     expect((await page.request.put(`${api}/api/conversations/${id}/members/${carol.id}`)).status()).toBe(400)
     await pick(page, carol.userName)
     await expect(page.getByRole('link', { name: carol.userName, exact: true })).toBeVisible()
+    const removal = page.waitForResponse(response => response.request().method() === 'DELETE'
+      && response.url() === `${api}/api/conversations/${id}/members/${bob.id}`)
     await page.getByRole('button', { name: `Αφαίρεση ${bob.userName}`, exact: true }).click()
+    expect((await removal).status()).toBe(204)
     await expect(page.getByRole('link', { name: bob.userName, exact: true })).toHaveCount(0)
     expect((await bobPage.request.get(`${api}/api/conversations/${id}`)).status()).toBe(404)
     expect((await (await bobPage.request.get(`${api}/api/conversations`)).json()).items).toEqual([])
