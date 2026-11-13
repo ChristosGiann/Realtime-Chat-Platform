@@ -26,7 +26,8 @@ export const live = (page: Page) => page.getByLabel('Κατάσταση live σ�
 export async function sendUi(page: Page, body: string) {
   await page.getByLabel('Νέο μήνυμα', { exact: true }).fill(body)
   await panel(page).getByRole('button', { name: 'Αποστολή', exact: true }).click()
-  await expect(panel(page).getByText(body, { exact: true })).toBeVisible()
+  // The committed live echo can arrive before REST clears the composer.
+  await expect(panel(page).getByRole('list', { name: 'Ιστορικό μηνυμάτων' }).getByText(body, { exact: true })).toBeVisible()
   await expect(page.getByLabel('Νέο μήνυμα', { exact: true })).toHaveValue('')
 }
 export async function send(request: APIRequestContext, id: string, body: string, clientMessageId = randomUUID()) {
