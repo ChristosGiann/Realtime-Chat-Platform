@@ -31,6 +31,7 @@ test('one real connection per tab survives navigation and tab cleanup is indepen
     expect(firstConnections).toBe(1); expect(secondConnections).toBe(1); expect(firstClosed).toBe(0)
     await second.close()
     await page.getByRole('link', { name: 'Realtime Chat' }).click()
+    await expect(page.getByRole('heading', { name: /Καλώς ήρθες/ })).toBeVisible()
     await page.evaluate(id => { location.hash = `/conversations/${id}` }, ids[0])
     await expect(live(page)).toHaveText('Ζωντανή σύνδεση')
     await send(page.request, ids[0], 'Remaining tab still live')

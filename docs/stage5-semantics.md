@@ -1,6 +1,9 @@
 # Stage 5 — Presence, Typing & Receipts: σημασιολογία και συμβόλαια (#77)
 
-Κατάσταση: **πρόταση για review**, όχι υλοποιημένη λειτουργικότητα.
+Κατάσταση: **αρχικό design του #77, υλοποιημένο από τα #78–#84**.
+Τα ακριβή διαθέσιμα contracts και η επαλήθευση καταγράφονται στο
+[Stage 5 handoff](stage5-verification.md). Οι παρακάτω αναφορές σε «πρόταση» και
+«μελλοντική υλοποίηση» διατηρούν το ιστορικό πλαίσιο της αρχικής απόφασης.
 Parent: [#76](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/76).
 Design issue: [#77](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/77).
 Βάση ελέγχου: Stage 4, commit `e8587270697b6077e53d00a016b6461482b95ac5`.
