@@ -80,8 +80,16 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<Guid?>("LastDeliveredMessageId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("LastReadMessageId")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid>("MembershipId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
 
                     b.Property<int>("Role")
                         .HasColumnType("integer");
@@ -93,6 +101,11 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("UX_ConversationMembers_Owner")
                         .HasFilter("\"Role\" = 2");
 
+                    b.HasIndex("MembershipId")
+                        .IsUnique();
+
+                    b.HasIndex("ConversationId", "LastDeliveredMessageId");
+
                     b.HasIndex("ConversationId", "LastReadMessageId");
 
                     b.HasIndex("UserId", "ConversationId");
@@ -100,6 +113,8 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                     b.ToTable("ConversationMembers", "conversations", t =>
                         {
                             t.HasCheckConstraint("CK_ConversationMembers_JoinedAt", "isfinite(\"JoinedAt\")");
+
+                            t.HasCheckConstraint("CK_ConversationMembers_MembershipId", "\"MembershipId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
 
                             t.HasCheckConstraint("CK_ConversationMembers_Role", "\"Role\" IN (1, 2)");
                         });
@@ -402,6 +417,12 @@ namespace Chat.Api.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Chat.Api.Messages.Message", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId", "LastDeliveredMessageId")
+                        .HasPrincipalKey("ConversationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Chat.Api.Messages.Message", null)
                         .WithMany()

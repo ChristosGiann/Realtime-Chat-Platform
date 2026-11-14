@@ -12,10 +12,21 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-builder.Services.AddSignalR(options => options.EnableDetailedErrors = false);
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = false;
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+});
 builder.Services.AddScoped<ChatSessionValidator>();
 builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
+builder.Services.AddSingleton<IReceiptBroadcaster, ReceiptBroadcaster>();
+builder.Services.AddSingleton<MembershipNotifications>();
 builder.Services.AddSingleton<ConversationConnections>();
+builder.Services.AddSingleton<ConversationPresence>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ConversationTyping>();
+builder.Services.AddHostedService(services => services.GetRequiredService<ConversationTyping>());
 
 builder.Services.AddDbContext<ChatDbContext>((services, options) =>
 {

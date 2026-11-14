@@ -29,11 +29,11 @@ export async function request<T>(path: string, init: RequestInit = {}, protected
   }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>
 }
-export async function mutate<T>(path: string, method: string, body?: unknown, protectedRequest = true): Promise<T> {
+export async function mutate<T>(path: string, method: string, body?: unknown, protectedRequest = true, signal?: AbortSignal): Promise<T> {
   // Obtain a fresh identity-bound token for each mutation, including after login.
-  const { requestToken } = await request<{ requestToken: string }>('/api/auth/csrf')
+  const { requestToken } = await request<{ requestToken: string }>('/api/auth/csrf', { signal })
   return request<T>(path, { method, headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': requestToken },
-    body: body === undefined ? undefined : JSON.stringify(body) }, protectedRequest)
+    body: body === undefined ? undefined : JSON.stringify(body), signal }, protectedRequest)
 }
 export const authApi = {
   me: () => request<CurrentUser>('/api/auth/me'),

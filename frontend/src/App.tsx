@@ -8,6 +8,7 @@ import { PublicProfilePage } from './profiles/PublicProfilePage'
 import { EditProfilePage } from './profiles/EditProfilePage'
 import { UserSearchPage } from './profiles/UserSearchPage'
 import { ConversationsPage } from './conversations/ConversationsPage'
+import { RealtimeProvider } from './messages/RealtimeProvider'
 import './App.css'
 function Screen() {
   const auth = useAuth()
@@ -48,4 +49,4 @@ function Screen() {
     </main>
   </>
 }
-export default function App() { return <AuthProvider><Screen /></AuthProvider> }
+export default function App() { return <AuthProvider><RealtimeProvider><Screen /></RealtimeProvider></AuthProvider> }

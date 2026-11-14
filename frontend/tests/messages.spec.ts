@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page, WebSocketRoute } from '@playwright/test'
+import { receiptMocks } from './receipt-mocks'
 
 const owner = '11111111-1111-1111-1111-111111111111'
 const group = '44444444-4444-4444-4444-444444444444'
@@ -7,6 +8,7 @@ const message = (id: string, body: string, createdAt = '2026-01-01T00:00:00.1234
 const latest = message('99999999-1111-1111-1111-111111111111', '<script>hello</script>')
 const older = message('11111111-2222-2222-2222-222222222222', 'Older text', '2026-01-01T00:00:00.123455Z')
 async function setup(page: Page) {
+  await receiptMocks(page, owner)
   await page.route('**/api/auth/me', route => route.fulfill({ json: { id: owner, userName: 'alice', email: 'alice@example.test', displayName: 'Alice' } }))
   await page.route('**/api/auth/csrf', route => route.fulfill({ json: { requestToken: 'message-token' } }))
   const summary = { id: group, type: 'Group', name: 'Messaging group', createdAt: latest.createdAt, myRole: 'Owner', memberCount: 1 }
@@ -17,9 +19,105 @@ async function setup(page: Page) {
 }
 const panel = (page: Page) => page.getByRole('region', { name: 'Μηνύματα συνομιλίας' })
 
-async function liveSocket(page: Page, failInitial = false) {
+test('direct receipts use durable snapshots, ignore stale event payloads and recover after reconnect', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  const anchor = { messageId: latest.id, createdAt: latest.createdAt }
+  const state = { conversationId: group, conversationType: 'Direct', rosterVersion: 'one', myMembershipId: 'me', nextOffset: null,
+    items: [{ userId: owner, membershipId: 'me', delivered: anchor, read: null as typeof anchor | null },
+      { userId: 'bob', membershipId: 'bob-one', delivered: null as typeof anchor | null, read: null as typeof anchor | null }] }
+  let queries = 0
+  await page.route(`**/api/conversations/${group}/receipts?*`, route => { queries++; return route.fulfill({ json: state }) })
+  await page.route(`**/api/conversations/${group}/messages?*`, route => route.fulfill({ json: { items: [latest], nextCursor: null } }))
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  const status = page.locator(`[data-message-id="${latest.id}"]`).getByLabel('Κατάσταση μηνύματος')
+  await expect(status).toHaveText('Sent')
+  const before = queries
+  socket.event('ReceiptAdvanced', { conversationId: group, member: { ...state.items[1], read: anchor, delivered: anchor } })
+  await expect.poll(() => queries).toBeGreaterThan(before)
+  await expect(status).toHaveText('Sent')
+  state.items[1].delivered = { messageId: older.id, createdAt: older.createdAt }
+  socket.event('ReceiptAdvanced', { conversationId: group })
+  await expect(status).toHaveText('Sent') // One microsecond older must not cover the latest message.
+  state.items[1].delivered = anchor
+  socket.event('ReceiptAdvanced', { conversationId: group })
+  await expect(status).toHaveText('Delivered')
+  await page.clock.install(); socket.close()
+  await expect(page.getByLabel('Παρουσία συνομιλίας')).toContainText('άγνωστη')
+  state.items[1].read = anchor // event missed while disconnected
+  await page.clock.fastForward(1200)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await expect(status).toHaveText('Read')
+  socket.event('ReceiptAdvanced', { conversationId: group, member: { ...state.items[1], delivered: null, read: null } })
+  await expect(status).toHaveText('Read')
+})
+
+test('delivery waits for a complete REST prefix and never marks read automatically', async ({ page }) => {
+  await setup(page); await liveSocket(page)
+  const acknowledgments: unknown[] = [], reads: unknown[] = []
+  let release!: () => void
+  let requestedOlder = false
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route(`**/api/conversations/${group}/messages?*`, async route => {
+    const old = new URL(route.request().url()).searchParams.has('cursor')
+    if (old) { requestedOlder = true; await gate }
+    await route.fulfill({ json: { items: old ? [older] : [latest], nextCursor: old ? null : 'older-page' } })
+  })
+  await page.route(`**/api/conversations/${group}/delivery-state`, route => {
+    acknowledgments.push(route.request().postDataJSON()); return route.fulfill({ json: {} })
+  })
+  await page.route(`**/api/conversations/${group}/read-state`, route => {
+    if (route.request().method() === 'PUT') reads.push(route.request().postDataJSON())
+    return route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 2 } })
+  })
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.locator(`[data-message-id="${latest.id}"]`)).toBeVisible()
+  await expect.poll(() => requestedOlder).toBe(true)
+  expect(acknowledgments).toEqual([]); expect(reads).toEqual([])
+  release()
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  expect(acknowledgments).toEqual([{ messageId: latest.id, membershipId: 'membership-owner' }]); expect(reads).toEqual([])
+  await page.getByRole('button', { name: 'Σήμανση ιστορικού ως αναγνωσμένου' }).click()
+  await expect.poll(() => reads).toEqual([{ messageId: latest.id, membershipId: 'membership-owner' }])
+})
+
+test('group counts follow current incarnations and own revocation clears protected state', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  const anchor = { messageId: latest.id, createdAt: latest.createdAt }
+  const state = { conversationId: group, conversationType: 'Group', rosterVersion: 'one', myMembershipId: 'me', nextOffset: null,
+    items: [{ userId: owner, membershipId: 'me', delivered: anchor as typeof anchor | null, read: null as typeof anchor | null },
+      { userId: 'bob', membershipId: 'bob-one', delivered: anchor as typeof anchor | null, read: anchor as typeof anchor | null },
+      { userId: 'carol', membershipId: 'carol-one', delivered: anchor as typeof anchor | null, read: null as typeof anchor | null }] }
+  await page.route(`**/api/conversations/${group}/receipts?*`, route => route.fulfill({ json: state }))
+  await page.route(`**/api/conversations/${group}/messages?*`, route => route.fulfill({ json: { items: [latest], nextCursor: null } }))
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  const status = page.locator(`[data-message-id="${latest.id}"]`).getByLabel('Κατάσταση μηνύματος')
+  await expect(status).toContainText('Delivered 2/2 · Read 1/2')
+  state.items = [state.items[0], { userId: 'bob', membershipId: 'bob-two', delivered: null, read: null }]; state.rosterVersion = 'two'
+  socket.event('ConversationMembershipChanged', { conversationId: group })
+  await expect(status).toContainText('Delivered 0/1 · Read 0/1')
+  socket.event('ReceiptAdvanced', { conversationId: group, member: { userId: 'bob', membershipId: 'bob-one', delivered: anchor, read: anchor } })
+  await expect(status).toContainText('Delivered 0/1 · Read 0/1')
+  socket.event('ConversationAccessRevoked', { conversationId: group, membershipId: 'old-me' })
+  await expect(page.getByLabel('Νέο μήνυμα', { exact: true })).toBeVisible()
+  state.items = [state.items[0]]; state.rosterVersion = 'three'
+  socket.event('ConversationMembershipChanged', { conversationId: group })
+  await expect(status).toContainText('χωρίς άλλα τρέχοντα μέλη')
+  socket.event('ConversationAccessRevoked', { conversationId: group, membershipId: 'me' })
+  await expect(page.getByLabel('Νέο μήνυμα', { exact: true })).toHaveCount(0)
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(0)
+  await expect(page.getByLabel('Παρουσία συνομιλίας')).toHaveCount(0)
+})
+
+async function liveSocket(page: Page, failInitial = false, deferSubscribe = false) {
   let socket: WebSocketRoute
   let attempts = 0
+  let connections = 0
+  let closed = 0
+  const invocations: string[] = []
+  const typingCalls: boolean[] = []
+  let releaseSubscribe = () => {}
   await page.route('**/hubs/chat/negotiate?*', route => {
     if (failInitial && attempts++ === 0) return route.fulfill({ status: 503, json: {} })
     return route.fulfill({ json: {
@@ -29,19 +127,177 @@ async function liveSocket(page: Page, failInitial = false) {
   })
   await page.routeWebSocket('**/hubs/chat?*', ws => {
     socket = ws
+    connections++
+    ws.onClose(() => { closed++ })
     ws.onMessage(data => {
       for (const raw of data.toString().split('\u001e').filter(Boolean)) {
         const frame = JSON.parse(raw)
         if (frame.protocol) ws.send('{}\u001e')
-        else if (frame.type === 1) ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId }) + '\u001e')
+        else if (frame.type === 1) {
+          if (frame.target === 'SetTyping') typingCalls.push(frame.arguments[1])
+          if (['Subscribe', 'Unsubscribe'].includes(frame.target)) invocations.push(`${frame.target}:${frame.arguments[0]}`)
+          const complete = () => ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId,
+            ...(frame.target === 'GetTyping' ? { result: { conversationId: frame.arguments[0], items: [], version: 0 } } : {}),
+            ...(frame.target === 'GetPresence' ? { result: { conversationId: frame.arguments[0], items: [{ userId: owner, isOnline: true }, { userId: 'bob', isOnline: false }], nextOffset: null, version: 0 } } : {}),
+          }) + '\u001e')
+          if (deferSubscribe && frame.target === 'Subscribe') { deferSubscribe = false; releaseSubscribe = complete }
+          else complete()
+        }
       }
     })
   })
   return {
+    connections: () => connections,
+    closed: () => closed,
+    invocations,
+    typingCalls,
+    event: (target: string, value: unknown) => socket.send(JSON.stringify({ type: 1, target, arguments: [value] }) + '\u001e'),
+    typing: (value: unknown) => socket.send(JSON.stringify({ type: 1, target: 'TypingChanged', arguments: [value] }) + '\u001e'),
+    releaseSubscribe: () => releaseSubscribe(),
     emit: (value: unknown) => socket.send(JSON.stringify({ type: 1, target: 'MessageCreated', arguments: [value] }) + '\u001e'),
     close: () => socket.close(),
   }
 }
+
+test('typing throttles keystrokes and stops on idle, clear and blur', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.clock.install()
+  const composer = page.getByLabel('Νέο μήνυμα', { exact: true })
+  await composer.pressSequentially('typing many keystrokes')
+  await expect.poll(() => socket.typingCalls).toEqual([true])
+  await page.clock.fastForward(2100)
+  await expect.poll(() => socket.typingCalls).toEqual([true, false])
+  await composer.fill('more activity'); await composer.fill('')
+  await expect.poll(() => socket.typingCalls).toEqual([true, false, true, false])
+  await composer.fill('blur activity'); await composer.blur()
+  await expect.poll(() => socket.typingCalls).toEqual([true, false, true, false, true, false])
+})
+
+test('typing hides self and other conversations, expires lost stops and rejects old events', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.clock.install()
+  const state = { conversationId: group, userId: owner, expiresInMilliseconds: 5000, version: 1 }
+  socket.typing(state); socket.typing({ ...state, conversationId: 'other', userId: 'bob' })
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
+  socket.typing({ ...state, userId: 'bob' })
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toContainText('Ένας χρήστης')
+  await page.clock.fastForward(5100)
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
+  socket.typing({ ...state, userId: 'bob' })
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
+  socket.typing({ ...state, userId: 'bob', version: 2 })
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toBeVisible()
+  await page.getByLabel('Νέο μήνυμα', { exact: true }).fill('Draft before reconnect')
+  await expect.poll(() => socket.typingCalls).toEqual([true])
+  socket.close()
+  await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Επανασύνδεση')
+  await page.clock.fastForward(1200)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  expect(socket.typingCalls).toEqual([true])
+})
+
+test('shared connection survives conversation navigation and cleans groups without duplicate delivery', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  const second = '55555555-5555-5555-5555-555555555555'
+  await page.route(`**/api/conversations/${second}?*`, route => route.fulfill({ json: { id: second, type: 'Group', name: 'Second', myRole: 'Owner', members: [], nextOffset: null } }))
+  await page.route(`**/api/conversations/${second}/messages?*`, route => route.fulfill({ json: { items: [], nextCursor: null } }))
+  await page.route(`**/api/conversations/${second}/read-state`, route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 0 } }))
+  await page.goto('/#/app')
+  await expect.poll(socket.connections).toBe(1)
+  for (const id of [group, second, group]) {
+    await page.evaluate(id => { location.hash = `/conversations/${id}` }, id)
+    await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  }
+  expect(socket.invocations).toEqual([`Subscribe:${group}`, `Unsubscribe:${group}`, `Subscribe:${second}`, `Unsubscribe:${second}`, `Subscribe:${group}`])
+  socket.emit({ ...older, conversationId: second }); socket.emit(latest); socket.emit(latest)
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(1)
+  await page.getByRole('link', { name: 'Realtime Chat' }).click()
+  await expect.poll(() => socket.invocations.at(-1)).toBe(`Unsubscribe:${group}`)
+  expect(socket.connections()).toBe(1); expect(socket.closed()).toBe(0)
+})
+
+test('logout at home stops shared transport and cancels reconnect retries', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.route('**/api/auth/logout', route => route.fulfill({ status: 204 }))
+  await page.goto('/#/app'); await expect.poll(socket.connections).toBe(1)
+  await page.getByRole('button', { name: 'Αποσύνδεση', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Σύνδεση', exact: true })).toBeVisible()
+  await expect.poll(socket.closed).toBe(1)
+  await page.clock.install(); await page.clock.fastForward(60000)
+  expect(socket.connections()).toBe(1)
+  await page.route('**/api/auth/login', route => route.fulfill({ status: 204 }))
+  await page.getByLabel('Email', { exact: true }).fill('alice@example.test')
+  await page.getByLabel('Κωδικός', { exact: true }).fill('Test-password123!')
+  await page.getByRole('button', { name: 'Σύνδεση', exact: true }).click()
+  await expect.poll(socket.connections).toBe(2)
+  expect(socket.closed()).toBe(1)
+})
+
+test('late Subscribe completion after navigation is undone before the next subscription', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page, false, true)
+  await page.goto(`/#/conversations/${group}`)
+  await expect.poll(() => socket.invocations).toEqual([`Subscribe:${group}`])
+  await page.getByRole('link', { name: 'Realtime Chat' }).click()
+  await expect(page.getByRole('heading', { name: /Καλώς ήρθες/ })).toBeVisible()
+  socket.releaseSubscribe()
+  await expect.poll(() => socket.invocations).toEqual([`Subscribe:${group}`, `Unsubscribe:${group}`])
+  await page.evaluate(id => { location.hash = `/conversations/${id}` }, group)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  socket.emit(latest)
+  await expect(panel(page).locator('[data-message-id]')).toHaveCount(1)
+  expect(socket.connections()).toBe(1)
+})
+
+test('session loss at home is detected before reconnect without conversation requests', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto('/#/app'); await expect.poll(socket.connections).toBe(1)
+  await page.route('**/api/auth/me', route => route.fulfill({ status: 401, json: {} }))
+  socket.close()
+  await expect(page.getByRole('heading', { name: 'Σύνδεση', exact: true })).toBeVisible()
+  expect(socket.connections()).toBe(1)
+})
+
+test('conversation access rejection leaves the authenticated transport reusable', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.route(`**/api/conversations/${group}/read-state`, route => route.fulfill({ status: 404, json: {} }))
+  socket.close()
+  await expect(panel(page).getByRole('alert')).toContainText('Δεν έχεις πλέον πρόσβαση')
+  await page.getByRole('link', { name: 'Realtime Chat' }).click()
+  await expect(page.getByRole('heading', { name: /Καλώς ήρθες/ })).toBeVisible()
+  await page.route(`**/api/conversations/${group}/read-state`, route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 0 } }))
+  await page.evaluate(id => { location.hash = `/conversations/${id}` }, group)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  expect(socket.connections()).toBe(2)
+})
+
+test('network restoration resets offline backoff when the first online fetch still fails', async ({ page }) => {
+  await setup(page); const socket = await liveSocket(page)
+  await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  await page.clock.install()
+  let attempts = 0, offline = true
+  await page.route('**/api/auth/me', route => {
+    attempts++
+    return route.fulfill(offline ? { status: 503, json: {} } : { json: { id: owner, userName: 'alice', email: 'alice@example.test', displayName: 'Alice' } })
+  })
+  socket.close(); await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toContainText('Επανασύνδεση')
+  for (const [index, elapsed] of [1100, 2100, 5100].entries()) {
+    await page.clock.fastForward(elapsed); await expect.poll(() => attempts).toBe(index + 1)
+  }
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect.poll(() => attempts).toBe(4)
+  offline = false
+  await page.clock.fastForward(1100)
+  await expect(page.getByLabel('Κατάσταση live σύνδεσης')).toHaveText('Ζωντανή σύνδεση')
+  expect(socket.connections()).toBe(2)
+})
 
 test('initial SignalR failure retries without discarding durable history', async ({ page }) => {
   await setup(page); await liveSocket(page, true)
@@ -116,7 +372,7 @@ test('history is safe text, older pages deduplicate and explicit read uses loade
     ? { items: [latest, older], nextCursor: null } : { items: [latest], nextCursor: 'opaque+/=' } }))
   await page.route(`**/api/conversations/${group}/read-state`, route => {
     if (route.request().method() === 'PUT') {
-      expect(route.request().postDataJSON()).toEqual({ messageId: latest.id })
+      expect(route.request().postDataJSON()).toEqual({ messageId: latest.id, membershipId: 'membership-owner' })
       expect(route.request().headers()['x-csrf-token']).toBe('message-token')
       return route.fulfill({ json: { lastReadMessageId: latest.id, lastReadAt: latest.createdAt, unreadCount: 0 } })
     }

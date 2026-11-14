@@ -5,14 +5,23 @@
 Το Stage 2 προσθέτει Direct/Group συνομιλίες, συμμετοχές, authorization και React flows.
 Το Stage 3 προσθέτει durable μηνύματα, ασφαλή retries, ιστορικό, read state και REST messaging UI.
 Το Stage 4 προσθέτει live SignalR μηνύματα, ασφαλείς subscriptions/revocation και REST resync μετά από reconnect.
+Το Stage 5 προσθέτει authorized presence/typing, durable delivery/read receipts και ασφαλή ανάκτηση στο React.
 
 - [Εκκίνηση, έλεγχοι και περιορισμοί Stage 1](docs/stage1-verification.md)
 - [Επαλήθευση Stage 2 και παράδοση στο Stage 3](docs/stage2-verification.md)
 - [Επαλήθευση Stage 3 και παράδοση στο Stage 4](docs/stage3-verification.md)
 - [Επαλήθευση Stage 4 και περιορισμοί κλιμάκωσης](docs/stage4-verification.md)
+- [Επαλήθευση Stage 5 και παράδοση στο Stage 6](docs/stage5-verification.md)
+- [Stage 5: semantics για presence, typing και receipts (#77)](docs/stage5-semantics.md)
 - [Authenticated SignalR infrastructure](docs/signalr-infrastructure.md)
 - [Εξουσιοδοτημένες SignalR subscriptions](docs/signalr-subscriptions.md)
 - [Live μηνύματα στο React](docs/signalr-react.md)
+- [Κοινή authenticated σύνδεση ανά tab — #78](docs/signalr-shared-connection.md)
+- [Εξουσιοδοτημένη παρουσία συνομιλίας — #79](docs/signalr-presence.md)
+- [Εξουσιοδοτημένο typing με leases — #80](docs/signalr-typing.md)
+- [Durable delivery progress — #81](docs/message-delivery-state.md)
+- [Durable receipt snapshots και events — #82](docs/receipt-events.md)
+- [React presence, typing και receipts — #83](docs/stage5-react.md)
 - [Επανασύνδεση και REST resync](docs/signalr-reconnect.md)
 - [SignalR events μετά το commit](docs/signalr-message-events.md)
 - [Συνεδρίες browser](docs/browser-sessions.md)

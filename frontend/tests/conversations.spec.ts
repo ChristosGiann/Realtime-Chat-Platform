@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { receiptMocks } from './receipt-mocks'
 const owner = '11111111-1111-1111-1111-111111111111'
 const bob = '22222222-2222-2222-2222-222222222222'
 const carol = '33333333-3333-3333-3333-333333333333'
@@ -8,6 +9,7 @@ const profile = (userId: string, displayName: string) => ({ userId, displayName,
 const member = (userId: string, displayName: string, role = 'Member') => ({ userId, role, joinedAt: '2026-01-01T00:00:00Z', profile: profile(userId, displayName) })
 const summary = { id: group, type: 'Group', name: 'Η ομάδα μας', createdAt: '2026-01-01T00:00:00Z', myRole: 'Owner', memberCount: 2 }
 async function session(page: Page) {
+  await receiptMocks(page, owner)
   await page.route('**/api/conversations/*/messages?*', route => route.fulfill({ json: { items: [], nextCursor: null } }))
   await page.route('**/api/conversations/*/read-state', route => route.fulfill({ json: { lastReadMessageId: null, lastReadAt: null, unreadCount: 0 } }))
   await page.route('**/api/auth/me', route => route.fulfill({ json: { id: owner, userName: 'alice', email: 'alice@example.test', displayName: 'Alice' } }))
@@ -105,6 +107,24 @@ test('member can leave and list is refreshed', async ({ page }) => {
   await page.getByRole('button', { name: 'Αποχώρηση από ομάδα' }).click()
   await expect(page.getByText('Δεν έχεις ακόμη συνομιλίες.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Επίλεξε συνομιλία' })).toBeVisible()
+})
+
+test('membership refresh cannot enable another mutation before the pending response completes', async ({ page }) => {
+  await session(page); await list(page, [summary]); await search(page, [profile(carol, 'Carol')])
+  const members = [member(owner, 'Alice', 'Owner'), member(bob, 'Bob')]
+  await page.route(`**/api/conversations/${group}?*`, route => route.fulfill({ json: { ...summary, members, nextOffset: null } }))
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route(`**/api/conversations/${group}/members/${carol}`, async route => {
+    members.push(member(carol, 'Carol'))
+    await page.evaluate(() => window.dispatchEvent(new Event('conversation-resynced')))
+    await gate; await route.fulfill({ status: 204 })
+  })
+  await page.goto(`/#/conversations/${group}`); await find(page, 'Carol')
+  await expect(page.getByRole('link', { name: 'Carol', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toBeDisabled()
+  release()
+  await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toBeEnabled()
 })
 
 test('list and member pages append, fit mobile and missing profile uses ID', async ({ page }, testInfo) => {
