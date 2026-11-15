@@ -15,7 +15,7 @@ export type ConversationCallbacks = {
   revoked?: (membershipId: string) => void
 }
 export type PresenceMember = { userId: string; isOnline: boolean }
-type PresencePage = { conversationId: string; items: PresenceMember[]; nextOffset: number | null; version: number }
+type PresencePage = { conversationId: string; items: PresenceMember[]; nextOffset: number | null; version: number; epoch?: string; rosterVersion?: string }
 type TypingEvent = { conversationId: string; userId: string; expiresInMilliseconds: number; version: number }
 type TypingSnapshot = { conversationId: string; items: Omit<TypingEvent, 'conversationId' | 'version'>[]; version: number }
 type Consumer = { callbacks: ConversationCallbacks; controller: AbortController; ready: number }
@@ -127,11 +127,17 @@ export class RealtimeSession {
     const epoch = this.transport, entry = this.subscriptions.get(id)
     const items: PresenceMember[] = []
     let offset: number | null = 0
+    let pageEpoch: string | undefined
+    let rosterVersion: string | undefined
     do {
       if (!entry || !this.current(entry, epoch) || signal.aborted) throw new Error('Connection changed')
       const page: PresencePage = await this.connection.invoke('GetPresence', id, offset, 100)
       if (!this.current(entry, epoch) || signal.aborted) throw new Error('Connection changed')
       if (page?.conversationId !== id || !Array.isArray(page.items)) throw new Error('Invalid presence snapshot')
+      if (offset !== 0 && page.epoch !== pageEpoch) throw new Error('Presence epoch changed')
+      if (offset !== 0 && page.rosterVersion !== rosterVersion) throw new Error('Presence roster changed')
+      pageEpoch = page.epoch
+      rosterVersion = page.rosterVersion
       items.push(...page.items)
       if (page.nextOffset !== null && page.nextOffset <= offset) throw new Error('Invalid presence cursor')
       offset = page.nextOffset

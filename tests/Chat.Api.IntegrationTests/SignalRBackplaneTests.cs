@@ -104,11 +104,25 @@ public sealed class SignalRBackplaneTests(MultiInstanceTopology topology) : ICla
         var history = await b.GetStringAsync($"/api/conversations/{conversation}/messages");
         Assert.Contains(messageId.ToString(), history, StringComparison.OrdinalIgnoreCase);
         await Assert.ThrowsAsync<TimeoutException>(() => seen.Task.WaitAsync(TimeSpan.FromMilliseconds(800)));
+        // The distributed registry aborts uncertain sockets on outage; recovery uses a new owner lease.
+        await using var restored = Hub(topology.BUrl, bob.Cookie);
+        await restored.StartAsync();
+        Assert.NotNull(restored.ConnectionId);
         // Fresh transport can route again after recovery; no replay of the earlier event.
-        var fresh = Capture(receiver, "RecoveryProbe");
-        await topology.A.Services.GetRequiredService<IHubContext<ChatHub>>().Clients
-            .Client(receiver.ConnectionId!).SendAsync("RecoveryProbe", "new-event");
-        Assert.Equal("new-event", await fresh.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        var fresh = Capture(restored, "RecoveryProbe");
+        using var recovery = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!fresh.Task.IsCompleted)
+        {
+            try
+            {
+                await topology.A.Services.GetRequiredService<IHubContext<ChatHub>>().Clients
+                    .Client(restored.ConnectionId!).SendAsync("RecoveryProbe", "new-event", recovery.Token);
+            }
+            catch (StackExchange.Redis.RedisException) { /* Backplane subscription is still recovering. */ }
+            await Task.WhenAny(fresh.Task, Task.Delay(200, recovery.Token));
+            recovery.Token.ThrowIfCancellationRequested();
+        }
+        Assert.Equal("new-event", await fresh.Task);
     }
 
     [Fact]

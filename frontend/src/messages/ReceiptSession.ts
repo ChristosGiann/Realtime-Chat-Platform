@@ -78,7 +78,7 @@ export class ReceiptSession {
         this.changed(state, presence?.filter(x => state.items.some(member => member.userId === x.userId)) ?? null)
       }
     })().catch(cause => {
-      if (current()) { this.dirty = true; this.observe = true }
+      if (current()) { this.dirty = true; this.observe = true; this.changed(this.snapshot, null) }
       throw cause
     }).finally(() => { if (epoch === this.epoch) this.pending = undefined })
     return this.pending
