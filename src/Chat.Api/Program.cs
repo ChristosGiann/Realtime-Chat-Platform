@@ -1,3 +1,5 @@
+using Chat.Api.Infrastructure;
+using Chat.Api.Infrastructure.Redis;
 using Chat.Api.Authorization;
 using Chat.Api.Conversations;
 using Chat.Api.Realtime;
@@ -10,19 +12,38 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddRedisInfrastructure();
+builder.Services.AddSharedDataProtection();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-builder.Services.AddSignalR(options =>
+var signalR = builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = false;
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
+var redisSettings = builder.Configuration.GetSection("Redis").Get<RedisOptions>();
+if (redisSettings?.BackplaneEnabled == true)
+{
+    if (!redisSettings.IsValid()) throw new InvalidOperationException("Redis backplane configuration is invalid.");
+    signalR.AddStackExchangeRedis(options =>
+    {
+        options.Configuration = StackExchange.Redis.ConfigurationOptions.Parse(redisSettings.ConnectionString);
+        options.Configuration.AbortOnConnectFail = false;
+        options.Configuration.ConnectTimeout = redisSettings.OperationTimeoutMilliseconds;
+        options.Configuration.AsyncTimeout = redisSettings.OperationTimeoutMilliseconds;
+        options.Configuration.BacklogPolicy = StackExchange.Redis.BacklogPolicy.FailFast;
+        options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal(
+            $"{redisSettings.ApplicationName}:{redisSettings.Deployment}:{redisSettings.ProtocolVersion}:{redisSettings.RunId}:backplane:");
+    });
+}
 builder.Services.AddScoped<ChatSessionValidator>();
 builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
 builder.Services.AddSingleton<IReceiptBroadcaster, ReceiptBroadcaster>();
 builder.Services.AddSingleton<MembershipNotifications>();
 builder.Services.AddSingleton<ConversationConnections>();
+builder.Services.AddSingleton<DistributedConnectionRegistry>();
+builder.Services.AddHostedService(services => services.GetRequiredService<DistributedConnectionRegistry>());
 builder.Services.AddSingleton<ConversationPresence>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ConversationTyping>();
@@ -97,6 +118,16 @@ app.MapHealthChecks(
         Predicate = healthCheck =>
             healthCheck.Tags.Contains("ready")
     }).AllowAnonymous();
+
+// Connectivity only. Keep durable readiness independent from Redis.
+app.MapHealthChecks("/health/realtime", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("realtime"),
+    ResultStatusCodes =
+    {
+        [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded] = StatusCodes.Status503ServiceUnavailable
+    }
+}).AllowAnonymous();
 
 app.MapGet("/api/version", () =>
 {
