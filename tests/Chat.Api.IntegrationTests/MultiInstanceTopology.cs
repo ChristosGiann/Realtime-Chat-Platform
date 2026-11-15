@@ -24,14 +24,23 @@ public sealed class MultiInstanceTopology : IAsyncLifetime
     private string redisConnectionString = "";
     private string KeyPath => Path.Combine(Path.GetTempPath(), "chat-stage6-tests", RunId);
 
-    public WebApplicationFactory<Program> CreateInstance(string identity, string? runId = null)
+    public WebApplicationFactory<Program> CreateInstance(string identity, string? runId = null, bool backplane = false)
     {
         var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.UseEnvironment("Development").ConfigureAppConfiguration((_, config) =>
+            builder.UseEnvironment("Development")
+                .UseSetting("Redis:BackplaneEnabled", backplane.ToString())
+                .UseSetting("Redis:Enabled", "true")
+                .UseSetting("Redis:ConnectionString", redisConnectionString)
+                .UseSetting("Redis:ApplicationName", "chat-tests")
+                .UseSetting("Redis:Deployment", "integration")
+                .UseSetting("Redis:ProtocolVersion", "v1")
+                .UseSetting("Redis:RunId", runId ?? RunId)
+                .ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:ChatDatabase"] = Postgres.GetConnectionString(),
                     ["Redis:Enabled"] = "true",
+                    ["Redis:BackplaneEnabled"] = backplane.ToString(),
                     ["Redis:ConnectionString"] = redisConnectionString,
                     ["Redis:ApplicationName"] = "chat-tests",
                     ["Redis:Deployment"] = "integration",
@@ -51,14 +60,14 @@ public sealed class MultiInstanceTopology : IAsyncLifetime
         {
             await Task.WhenAll(Postgres.StartAsync(), Redis.StartAsync());
             redisConnectionString = Redis.GetConnectionString();
-            A = CreateInstance("instance-a");
+            A = CreateInstance("instance-a", backplane: true);
             using var a = A.CreateClient();
             AUrl = a.BaseAddress!;
             using (var scope = A.Services.CreateScope())
                 await scope.ServiceProvider.GetRequiredService<ChatDbContext>().Database.MigrateAsync();
             // Persist a shared key before starting another independent host/provider.
             A.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector("topology").Protect("ready");
-            B = CreateInstance("instance-b");
+            B = CreateInstance("instance-b", backplane: true);
             using var b = B.CreateClient();
             BUrl = b.BaseAddress!;
         }
