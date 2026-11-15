@@ -8,6 +8,7 @@ namespace Chat.Api.Infrastructure.Redis;
 public sealed class RedisOptions
 {
     public bool Enabled { get; set; }
+    public bool BackplaneEnabled { get; set; }
     public string ConnectionString { get; set; } = "";
     public string ApplicationName { get; set; } = "realtime-chat";
     public string Deployment { get; set; } = "";
@@ -19,6 +20,7 @@ public sealed class RedisOptions
         Regex.IsMatch(value, @"\A[a-zA-Z0-9_-]{1,64}\z", RegexOptions.CultureInvariant);
     public bool IsValid()
     {
+        if (BackplaneEnabled && !Enabled) return false;
         if (!Enabled) return true;
         if (!new[] { ApplicationName, Deployment, ProtocolVersion, RunId }.All(ValidSegment)
             || OperationTimeoutMilliseconds is < 100 or > 10000) return false;

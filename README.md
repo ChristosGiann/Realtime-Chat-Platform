@@ -15,6 +15,7 @@
 - [Stage 5: semantics για presence, typing και receipts (#77)](docs/stage5-semantics.md)
 - [Stage 6: distributed semantics και failure model — design (#96)](docs/stage6-distributed-semantics.md)
 - [Redis infrastructure και δύο-instance topology (#97)](docs/redis-infrastructure.md)
+- [SignalR Redis backplane transport (#98)](docs/signalr-redis-backplane.md)
 - [Authenticated SignalR infrastructure](docs/signalr-infrastructure.md)
 - [Εξουσιοδοτημένες SignalR subscriptions](docs/signalr-subscriptions.md)
 - [Live μηνύματα στο React](docs/signalr-react.md)

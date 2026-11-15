@@ -16,12 +16,27 @@ builder.Services.AddRedisInfrastructure();
 builder.Services.AddSharedDataProtection();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-builder.Services.AddSignalR(options =>
+var signalR = builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = false;
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
+var redisSettings = builder.Configuration.GetSection("Redis").Get<RedisOptions>();
+if (redisSettings?.BackplaneEnabled == true)
+{
+    if (!redisSettings.IsValid()) throw new InvalidOperationException("Redis backplane configuration is invalid.");
+    signalR.AddStackExchangeRedis(options =>
+    {
+        options.Configuration = StackExchange.Redis.ConfigurationOptions.Parse(redisSettings.ConnectionString);
+        options.Configuration.AbortOnConnectFail = false;
+        options.Configuration.ConnectTimeout = redisSettings.OperationTimeoutMilliseconds;
+        options.Configuration.AsyncTimeout = redisSettings.OperationTimeoutMilliseconds;
+        options.Configuration.BacklogPolicy = StackExchange.Redis.BacklogPolicy.FailFast;
+        options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal(
+            $"{redisSettings.ApplicationName}:{redisSettings.Deployment}:{redisSettings.ProtocolVersion}:{redisSettings.RunId}:backplane:");
+    });
+}
 builder.Services.AddScoped<ChatSessionValidator>();
 builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
 builder.Services.AddSingleton<IReceiptBroadcaster, ReceiptBroadcaster>();
