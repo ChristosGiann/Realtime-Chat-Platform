@@ -61,8 +61,13 @@ export function MessagingPanel({ id }: { id: string }) {
     let stop: (() => void) | undefined
     let anchor: string | null = null
     let readVersion = 0
+    let presenceExpiry: ReturnType<typeof setTimeout> | undefined
     const progress = new ReceiptSession(id, user?.id ?? '', realtime, (state, online) => {
-      if (!controller.signal.aborted) { setReceipts(state); setPresence(online) }
+      if (!controller.signal.aborted) {
+        if (presenceExpiry) clearTimeout(presenceExpiry)
+        setReceipts(state); setPresence(online)
+        if (online !== null) presenceExpiry = setTimeout(() => { setPresence(null); progress.request() }, 10_000)
+      }
     }, fail)
     receiptSession.current = progress
     const connect = () => realtime?.subscribe(id, {
@@ -120,7 +125,7 @@ export function MessagingPanel({ id }: { id: string }) {
         }
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => { alive.current = false; controller.abort(); active.current?.abort(); progress.stop(); stop?.() }
+    return () => { alive.current = false; controller.abort(); active.current?.abort(); if (presenceExpiry) clearTimeout(presenceExpiry); progress.stop(); stop?.() }
   }, [id, realtime, user?.id, user?.displayName, user?.userName])
   async function load(older = false) {
     if (mutation.current) return

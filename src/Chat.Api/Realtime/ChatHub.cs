@@ -6,12 +6,13 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
+using Chat.Api.Messages;
 
 namespace Chat.Api.Realtime;
 
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
 public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, ConversationAuthorization authorization,
-    ConversationConnections connections, ConversationPresence presence, ConversationTyping typing) : Hub
+    ConversationConnections connections, DistributedConnectionRegistry distributed, ConversationPresence presence, ConversationTyping typing) : Hub
 {
     public const string Endpoint = "/hubs/chat";
 
@@ -20,14 +21,32 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         if (!await sessions.IsValidAsync(Context.User)) { Context.Abort(); return; }
         var ticket = await Context.GetHttpContext()!.AuthenticateAsync(IdentityConstants.ApplicationScheme);
         if (ticket.Properties?.ExpiresUtc <= DateTimeOffset.UtcNow) { Context.Abort(); return; }
-        await presence.Publish(connections.Connected(Context.ConnectionId, sessions.GetUserId(Context.User)!.Value,
-            Context.Abort, ticket.Properties?.ExpiresUtc));
+        var user = sessions.GetUserId(Context.User)!.Value;
+        PresenceChange? change;
+        if (distributed.Enabled)
+        {
+            try
+            {
+                var registered = await distributed.Register(Context.ConnectionId, user, ticket.Properties?.ExpiresUtc,
+                    Context.Abort, Context.ConnectionAborted);
+                if (!registered.Success) { Context.Abort(); return; }
+                connections.Connected(Context.ConnectionId, user, Context.Abort, ticket.Properties?.ExpiresUtc);
+                change = registered.Change;
+            }
+            catch { Context.Abort(); return; }
+        }
+        else change = connections.Connected(Context.ConnectionId, user, Context.Abort, ticket.Properties?.ExpiresUtc);
+        await presence.Publish(change);
         await base.OnConnectedAsync();
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        await presence.Publish(connections.Disconnected(Context.ConnectionId));
+        var localChange = connections.Disconnected(Context.ConnectionId);
+        var user = sessions.GetUserId(Context.User);
+        var change = distributed.Enabled && user is not null
+            ? await distributed.Remove(Context.ConnectionId, user.Value) : localChange;
+        await presence.Publish(change);
         await base.OnDisconnectedAsync(exception);
     }
 
@@ -43,6 +62,13 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         try
         {
             await connections.Subscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
+            if (distributed.Enabled)
+            {
+                var membership = await db.ConversationMembers.Where(x => x.ConversationId == conversationId && x.UserId == actor)
+                    .Select(x => x.MembershipId).SingleAsync(Context.ConnectionAborted);
+                await distributed.Subscribe(Context.ConnectionId, conversationId, membership,
+                    connections.Subscription(Context.ConnectionId, conversationId)!.Value, Context.ConnectionAborted);
+            }
             await transaction.CommitAsync(Context.ConnectionAborted);
         }
         catch { Context.Abort(); throw; }
@@ -54,6 +80,7 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         if (conversationId == Guid.Empty) throw new HubException("Conversation not available.");
         // Removal affects only this connection, and is safe even after membership was removed.
         await connections.Unsubscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
+        if (distributed.Enabled) await distributed.Unsubscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
     }
 
     public async Task<PresencePage> GetPresence(Guid conversationId, int offset, int limit)
@@ -68,7 +95,21 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
             throw new HubException("Conversation not available.");
         var users = await db.ConversationMembers.Where(x => x.ConversationId == conversationId).OrderBy(x => x.UserId)
             .Skip(offset).Take(limit + 1).Select(x => x.UserId).ToListAsync(Context.ConnectionAborted);
-        var result = connections.Snapshot(conversationId, users.Take(limit).ToArray(), users.Count > limit ? offset + limit : null);
+        var rosterVersion = distributed.Enabled ? ReceiptSnapshot.Roster(await db.ConversationMembers
+            .Where(x => x.ConversationId == conversationId).Select(x => x.MembershipId).ToListAsync(Context.ConnectionAborted)) : null;
+        var pageUsers = users.Take(limit).ToArray();
+        PresencePage result;
+        if (distributed.Enabled)
+        {
+            try
+            {
+                var snapshot = await distributed.Snapshot(pageUsers, Context.ConnectionAborted);
+                result = new(conversationId, pageUsers.Select(id => snapshot.Members[id]).ToArray(),
+                    users.Count > limit ? offset + limit : null, 0, snapshot.Epoch, rosterVersion);
+            }
+            catch { throw new HubException("Presence unavailable; retry after recovery."); }
+        }
+        else result = connections.Snapshot(conversationId, pageUsers, users.Count > limit ? offset + limit : null);
         await transaction.CommitAsync(Context.ConnectionAborted);
         return result;
     }
@@ -109,7 +150,11 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         if (!connections.IsActive(Context.ConnectionId) || !await sessions.IsValidAsync(Context.User))
         {
             Context.Abort();
-            await presence.Publish(connections.Disconnected(Context.ConnectionId));
+            var localChange = connections.Disconnected(Context.ConnectionId);
+            var user = sessions.GetUserId(Context.User);
+            var change = distributed.Enabled && user is not null
+                ? await distributed.Remove(Context.ConnectionId, user.Value) : localChange;
+            await presence.Publish(change);
             throw new HubException("Authentication required.");
         }
         return sessions.GetUserId(Context.User)!.Value;

@@ -1,6 +1,7 @@
 # Εξουσιοδοτημένη παρουσία συνομιλίας — #79
 
-Η παρουσία είναι ephemeral, single-instance projection του `ConversationConnections`.
+Η περιγραφή παρακάτω αφορά το αρχικό Stage 5 single-instance projection του `ConversationConnections`.
+Για distributed λειτουργία με Redis/backplane βλ. `distributed-presence.md` (#99).
 Online σημαίνει τουλάχιστον μία γνωστή, authenticated και μη ληγμένη σύνδεση του
 χρήστη στην API instance. Δεν σημαίνει ότι ο χρήστης βλέπει κάποια συνομιλία.
 Δεν προστίθεται PostgreSQL state, migration, LastSeen ή global presence endpoint.
