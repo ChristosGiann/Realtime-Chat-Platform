@@ -1,3 +1,5 @@
+using Chat.Api.Infrastructure;
+using Chat.Api.Infrastructure.Redis;
 using Chat.Api.Authorization;
 using Chat.Api.Conversations;
 using Chat.Api.Realtime;
@@ -10,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddRedisInfrastructure();
+builder.Services.AddSharedDataProtection();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddSignalR(options =>
@@ -97,6 +101,16 @@ app.MapHealthChecks(
         Predicate = healthCheck =>
             healthCheck.Tags.Contains("ready")
     }).AllowAnonymous();
+
+// Connectivity only. Keep durable readiness independent from Redis.
+app.MapHealthChecks("/health/realtime", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("realtime"),
+    ResultStatusCodes =
+    {
+        [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded] = StatusCodes.Status503ServiceUnavailable
+    }
+}).AllowAnonymous();
 
 app.MapGet("/api/version", () =>
 {
