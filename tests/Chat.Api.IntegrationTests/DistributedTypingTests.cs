@@ -165,7 +165,12 @@ public sealed class DistributedTypingTests(MultiInstanceTopology topology) : ICl
         var freshRegistry = replacement.Services.GetRequiredService<DistributedConnectionRegistry>();
         var freshTyping = replacement.Services.GetRequiredService<DistributedTyping>();
         Assert.NotEqual(oldBoot, freshRegistry.BootEpoch);
-        Assert.True((await freshRegistry.Register(actorConnection, actor, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, CancellationToken.None)).Success);
+        // Shutdown can fence the owner before its synthetic connection key expires. A new boot
+        // must wait for that old connection lease rather than take over the same ID early.
+        using var registrationDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(7));
+        while (!(await freshRegistry.Register(actorConnection, actor, DateTimeOffset.UtcNow.AddMinutes(1),
+                   () => { }, registrationDeadline.Token)).Success)
+            await Task.Delay(50, registrationDeadline.Token);
         await freshRegistry.Subscribe(actorConnection, conversation, actorMembership, 2, CancellationToken.None);
         Assert.NotNull(await freshTyping.Change(actorConnection, conversation, actor, actorMembership, 2, true, CancellationToken.None));
         Assert.Single((await observerTyping.Snapshot(conversation,
