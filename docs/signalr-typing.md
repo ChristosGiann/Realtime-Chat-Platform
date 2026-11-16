@@ -1,5 +1,8 @@
 # Εξουσιοδοτημένο typing — #80
 
+Η παρακάτω περιγραφή αφορά την αρχική Stage 5 single-instance συμπεριφορά.
+Για Redis-backed multi-instance typing βλ. `distributed-typing.md` (#100).
+
 Το typing είναι ephemeral, single-instance ένδειξη δραστηριότητας. Δεν μεταφέρει
 draft, χαρακτήρες, μήκος κειμένου, timestamps του client ή actor ID. Δεν αποθηκεύεται
 στην PostgreSQL και δεν αποτελεί presence, delivery ή read acknowledgement.

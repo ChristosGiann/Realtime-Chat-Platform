@@ -64,7 +64,8 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
     {
         if (!connections.TryGetValue(id, out var connection)) throw new HubException("Connection unavailable.");
         await hub.Groups.AddToGroupAsync(id, ConversationGroup.Name(conversation), token);
-        connection.Conversations.GetOrAdd(conversation, _ => Interlocked.Increment(ref subscriptionVersion));
+        connection.Conversations.AddOrUpdate(conversation, _ => Interlocked.Increment(ref subscriptionVersion),
+            (_, _) => Interlocked.Increment(ref subscriptionVersion));
     }
     public async Task Unsubscribe(string id, Guid conversation, CancellationToken token)
     {
