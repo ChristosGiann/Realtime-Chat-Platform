@@ -153,7 +153,7 @@ public sealed class DistributedTypingTests(MultiInstanceTopology topology) : ICl
                 new Dictionary<Guid, Guid> { [actor] = actorMembership, [observer] = observerMembership },
                 observerConnection, observer, 1, CancellationToken.None)).Items);
         }
-        // No Hub disconnect: the synthetic owner disappears while Redis still holds its lease.
+        // No Hub disconnect: graceful host shutdown fences synthetic connections and owner records.
         await crashed.DisposeAsync();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(7));
         while ((await observerTyping.Snapshot(conversation,

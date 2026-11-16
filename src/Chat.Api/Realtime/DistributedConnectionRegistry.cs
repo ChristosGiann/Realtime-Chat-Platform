@@ -8,6 +8,9 @@ namespace Chat.Api.Realtime;
 public sealed class DistributedConnectionRegistry(RedisConnection connection, RedisNamespace names,
     IOptions<RedisOptions> options, IConfiguration configuration, ILogger<DistributedConnectionRegistry> logger) : BackgroundService
 {
+    public sealed record RevocationConnection(string Id, string Owner, string Subscription);
+    public sealed record RevocationSnapshot(string Epoch, IReadOnlyList<string> Owners,
+        IReadOnlyList<RevocationConnection> Connections);
     private sealed record LocalConnection(Guid UserId, DateTimeOffset? TicketExpiry, Action Abort);
     private readonly Dictionary<string, LocalConnection> local = new();
     private readonly object sync = new();
@@ -111,12 +114,80 @@ public sealed class DistributedConnectionRegistry(RedisConnection connection, Re
     private RedisKey SubscriptionKey(string id) => Key($"subscriptions:{id}");
     private RedisKey RevisionKey(Guid user) => Key($"revision:{user:N}");
     private RedisKey LifetimeKey(Guid user) => Key($"lifetime:{user:N}");
+    private RedisKey OwnerKey(string owner) => Key($"owner:{owner}");
+    private RedisKey OwnersKey => Key("owners");
     private static long Ticket(DateTimeOffset? expiry) => (expiry ?? DateTimeOffset.UtcNow.AddDays(1)).ToUnixTimeMilliseconds();
+
+    private async Task TouchOwner(IDatabase db, CancellationToken token)
+    {
+        var accepted = (int)await db.ScriptEvaluateAsync("""
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+            local time = redis.call('TIME')
+            local now = time[1] * 1000 + math.floor(time[2] / 1000)
+            redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+            if redis.call('ZCARD', KEYS[2]) >= 256 and redis.call('ZSCORE', KEYS[2], ARGV[2]) == false then return -1 end
+            redis.call('SET', KEYS[3], ARGV[1], 'PX', 15000)
+            redis.call('ZADD', KEYS[2], now + 15000, ARGV[2])
+            redis.call('PEXPIRE', KEYS[2], 3600000)
+            return 1
+            """, [Key("epoch"), OwnersKey, OwnerKey(Owner)], [coordinationEpoch!, Owner])
+            .WaitAsync(Timeout, token);
+        if (accepted != 1) throw new InvalidOperationException("Redis owner registration unavailable.");
+    }
+
+    // Called while the caller holds the PostgreSQL conversation lock. A selected owner remains
+    // required even if its lease expires after this snapshot.
+    public async Task<RevocationSnapshot> SnapshotRevocation(Guid conversation, Guid user, Guid membership,
+        CancellationToken token)
+    {
+        var db = await Database(token);
+        await TouchOwner(db, token);
+        var epoch = coordinationEpoch!;
+        var owners = (RedisResult[]?)await db.ScriptEvaluateAsync("""
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return redis.error_reply('epoch changed') end
+            local time = redis.call('TIME')
+            local now = time[1] * 1000 + math.floor(time[2] / 1000)
+            redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+            local result = {}
+            for _, owner in ipairs(redis.call('ZRANGE', KEYS[2], 0, 255)) do
+                if redis.call('GET', ARGV[2] .. owner) == ARGV[1] then table.insert(result, owner)
+                else redis.call('ZREM', KEYS[2], owner) end
+            end
+            return result
+            """, [Key("epoch"), OwnersKey], [epoch, Key("owner:")]).WaitAsync(Timeout, token)
+            ?? throw new InvalidOperationException("Owner snapshot unavailable.");
+        var required = owners.Select(x => (string)x!).ToArray();
+        if (!required.Contains(Owner)) throw new InvalidOperationException("Local owner not registered.");
+        var connections = new List<RevocationConnection>();
+        var ids = await db.SortedSetRangeByRankAsync(UserKey(user), 0, MaxConnectionsPerUser - 1)
+            .WaitAsync(Timeout, token);
+        foreach (var id in ids)
+        {
+            var name = (string)id!;
+            var state = await db.HashGetAsync(ConnectionKey(name), ["owner", "epoch", "user"])
+                .WaitAsync(Timeout, token);
+            if (state[0].IsNull) continue;
+            if ((string?)state[1] != epoch || (string?)state[2] != user.ToString("N"))
+                throw new InvalidOperationException("Connection registry uncertain.");
+            var subscription = await db.HashGetAsync(SubscriptionKey(name), conversation.ToString("N"))
+                .WaitAsync(Timeout, token);
+            if (!subscription.IsNull && ((string)subscription!).StartsWith($"{membership:N}:", StringComparison.Ordinal))
+            {
+                var owner = (string)state[0]!;
+                if (!required.Contains(owner) || !((string)subscription!).EndsWith($":{owner}", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Subscription owner uncertain.");
+                connections.Add(new(name, owner, (string)subscription!));
+            }
+        }
+        if (await RequireEpoch(token) != epoch) throw new InvalidOperationException("Coordination epoch changed.");
+        return new(epoch, required, connections);
+    }
 
     public async Task<(bool Success, PresenceChange? Change)> Register(string id, Guid user, DateTimeOffset? expiry, Action abort, CancellationToken token)
     {
         if (!Enabled) return (true, null);
         var db = await Database(token);
+        await TouchOwner(db, token);
         var result = (RedisResult[]?)await db.ScriptEvaluateAsync(RegisterScript,
             [ConnectionKey(id), UserKey(user), RevisionKey(user), LifetimeKey(user)],
             [user.ToString("N"), $"{InstanceId}:{BootEpoch}", coordinationEpoch!, Ticket(expiry), id, Guid.NewGuid().ToString("N")]).WaitAsync(Timeout, token)
@@ -163,6 +234,19 @@ public sealed class DistributedConnectionRegistry(RedisConnection connection, Re
         await db.HashDeleteAsync(SubscriptionKey(id), conversation.ToString("N")).WaitAsync(Timeout, token);
     }
 
+    public async Task<bool> UnsubscribeExact(string id, Guid conversation, string expected,
+        string epoch, CancellationToken token)
+    {
+        var db = await Database(token);
+        return (int)await db.ScriptEvaluateAsync("""
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return -1 end
+            if redis.call('HGET', KEYS[2], ARGV[2]) ~= ARGV[3] then return 0 end
+            redis.call('HDEL', KEYS[2], ARGV[2])
+            return 1
+            """, [Key("epoch"), SubscriptionKey(id)], [epoch, conversation.ToString("N"), expected])
+            .WaitAsync(Timeout, token) == 1;
+    }
+
     public async Task<(string Epoch, IReadOnlyDictionary<Guid, PresenceMember> Members)> Snapshot(IReadOnlyList<Guid> users, CancellationToken token)
     {
         if (!Enabled) throw new InvalidOperationException("Distributed presence is disabled.");
@@ -202,24 +286,73 @@ public sealed class DistributedConnectionRegistry(RedisConnection connection, Re
         var recipients = new List<string>();
         foreach (var member in members)
         {
-            var ids = await db.SortedSetRangeByRankAsync(UserKey(member.Key), 0, MaxConnectionsPerUser - 1).WaitAsync(Timeout, token);
-            foreach (var id in ids)
-            {
-                var name = (string)id!;
-                if (!await db.KeyExistsAsync(ConnectionKey(name)).WaitAsync(Timeout, token)) continue;
-                var subscription = await db.HashGetAsync(SubscriptionKey(name), conversation.ToString("N")).WaitAsync(Timeout, token);
-                if (!subscription.IsNull && ((string)subscription!).StartsWith($"{member.Value:N}:", StringComparison.Ordinal)) recipients.Add(name);
-            }
+            var ids = (RedisResult[]?)await db.ScriptEvaluateAsync("""
+                if redis.call('GET', KEYS[1]) ~= ARGV[1] then return redis.error_reply('coordination epoch changed') end
+                local result = {}
+                local now = redis.call('TIME')
+                local ms = now[1] * 1000 + math.floor(now[2] / 1000)
+                redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', ms)
+                for _, id in ipairs(redis.call('ZRANGE', KEYS[2], 0, 127)) do
+                    local conn = ARGV[5] .. id
+                    local sub = redis.call('HGET', ARGV[6] .. id, ARGV[2])
+                    local owner = redis.call('HGET', conn, 'owner')
+                    if redis.call('HGET', conn, 'epoch') == ARGV[1]
+                        and redis.call('HGET', conn, 'user') == ARGV[3]
+                        and tonumber(redis.call('HGET', conn, 'ticket') or '0') > ms
+                        and owner and redis.call('GET', ARGV[7] .. owner) == ARGV[1]
+                        and sub and string.sub(sub, 1, 33) == ARGV[4] .. ':'
+                        and string.sub(sub, -string.len(owner) - 1) == ':' .. owner then
+                        table.insert(result, id)
+                    end
+                end
+                return result
+                """, [Key("epoch"), UserKey(member.Key)],
+                [coordinationEpoch!, conversation.ToString("N"), member.Key.ToString("N"), member.Value.ToString("N"),
+                    Key("connection:"), Key("subscriptions:"), Key("owner:")]).WaitAsync(Timeout, token)
+                ?? throw new InvalidOperationException("Redis recipient selection returned no result.");
+            recipients.AddRange(ids.Select(id => (string)id!));
         }
         return recipients;
+    }
+
+    public async Task<IReadOnlyList<string>> ConnectionsForUser(Guid user, CancellationToken token)
+    {
+        var db = await Database(token);
+        var result = (RedisResult[]?)await db.ScriptEvaluateAsync("""
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return redis.error_reply('coordination epoch changed') end
+            local time = redis.call('TIME')
+            local now = time[1] * 1000 + math.floor(time[2] / 1000)
+            redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+            local result = {}
+            for _, id in ipairs(redis.call('ZRANGE', KEYS[2], 0, 127)) do
+                local connection = ARGV[3] .. id
+                local owner = redis.call('HGET', connection, 'owner')
+                if owner and redis.call('GET', ARGV[4] .. owner) == ARGV[1]
+                    and redis.call('HGET', connection, 'epoch') == ARGV[1]
+                    and redis.call('HGET', connection, 'user') == ARGV[2]
+                    and tonumber(redis.call('HGET', connection, 'ticket') or '0') > now then
+                    table.insert(result, id)
+                end
+            end
+            return result
+            """, [Key("epoch"), UserKey(user)],
+            [coordinationEpoch!, user.ToString("N"), Key("connection:"), Key("owner:")])
+            .WaitAsync(Timeout, token) ?? throw new InvalidOperationException("Redis user routing unavailable.");
+        return result.Select(x => (string)x!).ToArray();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!Enabled) return;
+        try { await TouchOwner(await Database(stoppingToken), stoppingToken); }
+        catch (Exception error) when (error is RedisException or TimeoutException or InvalidOperationException)
+        { logger.LogWarning(error, "Initial owner registration unavailable."); }
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
+            try { await TouchOwner(await Database(stoppingToken), stoppingToken); }
+            catch (Exception error) when (error is RedisException or TimeoutException or InvalidOperationException)
+            { logger.LogWarning(error, "Owner heartbeat unavailable."); }
             KeyValuePair<string, LocalConnection>[] items;
             lock (sync) items = local.ToArray();
             foreach (var item in items)
@@ -241,5 +374,39 @@ public sealed class DistributedConnectionRegistry(RedisConnection connection, Re
                 }
             }
         }
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        var stopping = base.StopAsync(cancellationToken);
+        try
+        {
+            if (!Enabled || coordinationEpoch is null) return;
+            KeyValuePair<string, LocalConnection>[] remaining;
+            lock (sync) remaining = local.ToArray();
+            foreach (var item in remaining)
+            {
+                item.Value.Abort();
+                try { await Remove(item.Key, item.Value.UserId, CancellationToken.None); }
+                catch (Exception error) when (error is ObjectDisposedException or AggregateException or RedisException or TimeoutException)
+                { /* Lease expiry fences an unavailable coordination connection during shutdown. */ }
+            }
+            try
+            {
+                var db = (await connection.GetAsync(CancellationToken.None)).GetDatabase();
+                await db.ScriptEvaluateAsync("""
+                    if redis.call('GET', KEYS[1]) == ARGV[1]
+                        and redis.call('GET', KEYS[2]) == ARGV[1] then
+                        redis.call('DEL', KEYS[2])
+                        redis.call('ZREM', KEYS[3], ARGV[2])
+                    end
+                    return 1
+                    """, [Key("epoch"), OwnerKey(Owner), OwnersKey], [coordinationEpoch, Owner])
+                    .WaitAsync(Timeout, CancellationToken.None);
+            }
+            catch (Exception error) when (error is RedisException or TimeoutException or OperationCanceledException or ObjectDisposedException)
+            { /* Avoid logging through a provider that may already be disposed during host shutdown. */ }
+        }
+        finally { await stopping; }
     }
 }

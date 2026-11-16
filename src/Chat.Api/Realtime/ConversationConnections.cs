@@ -4,8 +4,9 @@ using Microsoft.AspNetCore.SignalR;
 namespace Chat.Api.Realtime;
 
 // Ephemeral single-instance routing state. PostgreSQL remains the authorization authority.
-public sealed class ConversationConnections(IHubContext<ChatHub> hub)
+public sealed class ConversationConnections(IHubContext<ChatHub> hub, IGroupManager? groupOverride = null)
 {
+    private readonly IGroupManager groups = groupOverride ?? hub.Groups;
     private sealed record Connection(Guid UserId, Action Abort, DateTimeOffset? ExpiresAt)
     {
         public ConcurrentDictionary<Guid, long> Conversations { get; } = new();
@@ -20,6 +21,19 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
     public IReadOnlyList<string> ForUser(Guid user) => connections.Where(x => x.Value.UserId == user && Active(x.Value)).Select(x => x.Key).ToArray();
     public long? Subscription(string id, Guid conversation) => connections.TryGetValue(id, out var connection)
         && Active(connection) && connection.Conversations.TryGetValue(conversation, out var generation) ? generation : null;
+    public bool Matches(string id, Guid user, Guid conversation, long generation) =>
+        connections.TryGetValue(id, out var connection) && connection.UserId == user
+        && connection.Conversations.TryGetValue(conversation, out var current) && current == generation;
+
+    // The remote handler never takes the PostgreSQL row lock. Only a captured generation can be
+    // removed; a later Subscribe (or rejoin) always owns a different generation.
+    public async Task RevokeExact(string id, Guid user, Guid conversation, long generation, CancellationToken token)
+    {
+        if (!connections.TryGetValue(id, out var connection) || connection.UserId != user
+            || !connection.Conversations.TryRemove(new KeyValuePair<Guid, long>(conversation, generation))) return;
+        try { await groups.RemoveFromGroupAsync(id, ConversationGroup.Name(conversation), token); }
+        catch { connection.Abort(); throw; }
+    }
 
     public PresenceChange? Connected(string id, Guid userId, Action abort, DateTimeOffset? expiresAt = null)
     {
@@ -63,13 +77,13 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
     public async Task Subscribe(string id, Guid conversation, CancellationToken token)
     {
         if (!connections.TryGetValue(id, out var connection)) throw new HubException("Connection unavailable.");
-        await hub.Groups.AddToGroupAsync(id, ConversationGroup.Name(conversation), token);
+        await groups.AddToGroupAsync(id, ConversationGroup.Name(conversation), token);
         connection.Conversations.AddOrUpdate(conversation, _ => Interlocked.Increment(ref subscriptionVersion),
             (_, _) => Interlocked.Increment(ref subscriptionVersion));
     }
     public async Task Unsubscribe(string id, Guid conversation, CancellationToken token)
     {
-        await hub.Groups.RemoveFromGroupAsync(id, ConversationGroup.Name(conversation), token);
+        await groups.RemoveFromGroupAsync(id, ConversationGroup.Name(conversation), token);
         // Keep routing metadata until removal succeeds, so a later revocation can still find it.
         if (connections.TryGetValue(id, out var connection)) connection.Conversations.TryRemove(conversation, out _);
     }
@@ -78,7 +92,7 @@ public sealed class ConversationConnections(IHubContext<ChatHub> hub)
         foreach (var pair in connections.Where(x => x.Value.UserId == userId))
         {
             if (!pair.Value.Conversations.TryRemove(conversation, out _)) continue;
-            try { await hub.Groups.RemoveFromGroupAsync(pair.Key, ConversationGroup.Name(conversation), token); }
+            try { await groups.RemoveFromGroupAsync(pair.Key, ConversationGroup.Name(conversation), token); }
             catch { pair.Value.Abort(); throw; }
         }
     }

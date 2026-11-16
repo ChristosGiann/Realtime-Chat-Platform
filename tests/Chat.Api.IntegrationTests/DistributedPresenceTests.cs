@@ -184,7 +184,7 @@ public sealed class DistributedPresenceTests(MultiInstanceTopology topology) : I
             Assert.True((await owner.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, CancellationToken.None)).Success);
             Assert.True((await observer.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
         }
-        // This synthetic registry connection has no SignalR disconnect callback; only the process stops.
+        // This synthetic registry connection has no SignalR disconnect callback; graceful host stop cleans it.
         await crashed.DisposeAsync();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(18));
         while ((await observer.Snapshot([user], deadline.Token)).Members[user].IsOnline)
