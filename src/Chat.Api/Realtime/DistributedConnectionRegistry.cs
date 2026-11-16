@@ -18,6 +18,12 @@ public sealed class DistributedConnectionRegistry(RedisConnection connection, Re
     private const int MaxConnectionsPerUser = 128;
     private const int MaxSubscriptionsPerConnection = 256;
     public bool Enabled => options.Value.Enabled && options.Value.BackplaneEnabled;
+    public string Owner => $"{InstanceId}:{BootEpoch}";
+    public async Task<string> RequireEpoch(CancellationToken token)
+    {
+        await Database(token);
+        return coordinationEpoch!;
+    }
     private string Key(string suffix) => names.CoordinationPrefix + suffix;
     private static readonly TimeSpan Lease = TimeSpan.FromSeconds(15);
     private TimeSpan Timeout => TimeSpan.FromMilliseconds(options.Value.OperationTimeoutMilliseconds);
