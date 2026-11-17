@@ -38,7 +38,7 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
     // Every ZSET entry carries the exact subscription incarnation. Reads discard a lease as soon as
     // the parent owner or subscription disappears, even if the 5-second Redis key has not expired.
     private const string Probe = """
-        local function remaining(aggregate, conversation, membership, connPrefix, subPrefix, epoch, activityEpoch, now)
+        local function remaining(aggregate, conversation, membership, connPrefix, subPrefix, ownerPrefix, epoch, activityEpoch, now)
             redis.call('ZREMRANGEBYSCORE', aggregate, '-inf', now)
             local entries = redis.call('ZRANGE', aggregate, 0, 255, 'WITHSCORES')
             local maximum = 0
@@ -52,6 +52,7 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
                 local owner = string.match(subscription, '^[^:]+:[^:]+:(.+)$') or ''
                 local valid = separator and leaseEpoch == activityEpoch and string.sub(subscription, 1, 33) == membership .. ':'
                     and redis.call('HGET', connPrefix .. connection, 'owner') == owner
+                    and redis.call('GET', ownerPrefix .. owner) == epoch
                     and redis.call('HGET', connPrefix .. connection, 'epoch') == epoch
                     and redis.call('HGET', subPrefix .. connection, conversation) == subscription
                 if not valid then redis.call('ZREM', aggregate, value)
@@ -66,6 +67,7 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
         local now = nowParts[1] * 1000 + math.floor(nowParts[2] / 1000)
         if redis.call('GET', KEYS[1]) ~= ARGV[1]
             or redis.call('GET', KEYS[10]) ~= ARGV[12]
+            or redis.call('GET', ARGV[13] .. ARGV[2]) ~= ARGV[1]
             or redis.call('HGET', KEYS[2], 'owner') ~= ARGV[2]
             or redis.call('HGET', KEYS[2], 'epoch') ~= ARGV[1]
             or redis.call('HGET', KEYS[3], ARGV[3]) ~= ARGV[4] then return {-1, 0, 0, ''} end
@@ -76,7 +78,7 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
             local previous = tonumber(redis.call('GET', KEYS[8]) or '-1000000000')
             if now - previous < 1000 then return {0, 0, 0, ''} end
             redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', now)
-            remaining(KEYS[4], ARGV[3], ARGV[11], ARGV[9], ARGV[10], ARGV[1], ARGV[12], now)
+            remaining(KEYS[4], ARGV[3], ARGV[11], ARGV[9], ARGV[10], ARGV[13], ARGV[1], ARGV[12], now)
             if redis.call('ZCARD', KEYS[4]) >= 256 and redis.call('ZSCORE', KEYS[4], ARGV[5]) == false then
                 return {-2, 0, 0, ''}
             end
@@ -88,7 +90,7 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
         end
         redis.call('SET', KEYS[9], ARGV[7], 'PX', 30000)
         redis.call('SET', KEYS[11], '1', 'PX', 30000)
-        local remainingMs = remaining(KEYS[4], ARGV[3], ARGV[11], ARGV[9], ARGV[10], ARGV[1], ARGV[12], now)
+        local remainingMs = remaining(KEYS[4], ARGV[3], ARGV[11], ARGV[9], ARGV[10], ARGV[13], ARGV[1], ARGV[12], now)
         redis.call('SET', KEYS[7], remainingMs > 0 and '1' or '0', 'PX', 3600000)
         redis.call('SET', KEYS[6], ARGV[8], 'NX', 'PX', 3600000)
         redis.call('PEXPIRE', KEYS[6], 3600000)
@@ -101,7 +103,7 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
         local nowParts = redis.call('TIME')
         local now = nowParts[1] * 1000 + math.floor(nowParts[2] / 1000)
         if redis.call('GET', KEYS[1]) ~= ARGV[1] or redis.call('GET', KEYS[6]) ~= ARGV[6] then return {-1, 0, ''} end
-        local remainingMs = remaining(KEYS[2], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[1], ARGV[6], now)
+        local remainingMs = remaining(KEYS[2], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[7], ARGV[1], ARGV[6], now)
         if remainingMs == 0 and redis.call('GET', KEYS[5]) == '1' then
             redis.call('SET', KEYS[5], '0', 'PX', 3600000)
             redis.call('INCR', KEYS[3])
@@ -176,7 +178,8 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
         {
             var result = Result(await Evaluate(db, ChangeScript, keys,
                 [epoch, owner, conversation.ToString("N"), subscription, $"{connectionId}|{subscription}|{activityEpoch}", active ? "1" : "0",
-                    sequence, Guid.NewGuid().ToString("N"), Key("connection:"), Key("subscriptions:"), membership.ToString("N"), activityEpoch], token));
+                    sequence, Guid.NewGuid().ToString("N"), Key("connection:"), Key("subscriptions:"), membership.ToString("N"),
+                    activityEpoch, Key("owner:")], token));
             if ((int)result[0] == 0) return null;
             if ((int)result[0] < 0) throw new HubException("Typing unavailable; resubscribe after recovery.");
             return new(conversation, actor, (int)result[1], (long)result[2], $"{epoch}:{activityEpoch}", (string?)result[3]);
@@ -196,12 +199,13 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
         var expected = $"{members[actor]:N}:{generation}:{registry.Owner}";
         var valid = (int)await Evaluate(db, """
             if redis.call('GET', KEYS[1]) ~= ARGV[1]
+                or redis.call('GET', ARGV[5] .. ARGV[2]) ~= ARGV[1]
                 or redis.call('HGET', KEYS[2], 'owner') ~= ARGV[2]
                 or redis.call('HGET', KEYS[2], 'epoch') ~= ARGV[1]
                 or redis.call('HGET', KEYS[3], ARGV[3]) ~= ARGV[4] then return 0 end
             return 1
             """, [Key("epoch"), Key($"connection:{actorConnection}"), Key($"subscriptions:{actorConnection}")],
-            [epoch, registry.Owner, conversation.ToString("N"), expected], token);
+            [epoch, registry.Owner, conversation.ToString("N"), expected, Key("owner:")], token);
         if (valid != 1) throw new HubException("Typing unavailable; resubscribe after recovery.");
         var items = new List<TypingMember>();
         foreach (var member in members)
@@ -209,7 +213,8 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
             var result = Result(await Evaluate(db, SnapshotScript,
                 [Key("epoch"), Aggregate(conversation, member.Key), Revision(conversation, member.Key),
                     Lifetime(conversation, member.Key), State(conversation, member.Key), Key("typing-epoch")],
-                [epoch, conversation.ToString("N"), member.Value.ToString("N"), Key("connection:"), Key("subscriptions:"), activityEpoch], token));
+                [epoch, conversation.ToString("N"), member.Value.ToString("N"), Key("connection:"), Key("subscriptions:"),
+                    activityEpoch, Key("owner:")], token));
             if ((int)result[0] < 0) throw new HubException("Typing unavailable; retry after recovery.");
             if ((int)result[0] > 0)
                 items.Add(new(member.Key, (int)result[0], (long)result[1], (string?)result[2]));
@@ -245,7 +250,8 @@ public sealed class DistributedTyping(DistributedConnectionRegistry registry, Re
         var (epoch, activityEpoch, db) = await Epochs(token);
         var result = Result(await Evaluate(db, SnapshotScript,
             [Key("epoch"), Aggregate(conversation, user), Revision(conversation, user), Lifetime(conversation, user), State(conversation, user), Key("typing-epoch")],
-            [epoch, conversation.ToString("N"), membership.ToString("N"), Key("connection:"), Key("subscriptions:"), activityEpoch], token));
+            [epoch, conversation.ToString("N"), membership.ToString("N"), Key("connection:"), Key("subscriptions:"),
+                activityEpoch, Key("owner:")], token));
         return ((int)result[0], (long)result[1], (string?)result[2], $"{epoch}:{activityEpoch}");
     }
 }

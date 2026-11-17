@@ -12,7 +12,7 @@ public interface IReceiptBroadcaster
 }
 
 public sealed class ReceiptBroadcaster(IServiceScopeFactory scopes, ConversationConnections connections,
-    IHubContext<ChatHub> hub) : IReceiptBroadcaster
+    DistributedConnectionRegistry distributed, IHubContext<ChatHub> hub) : IReceiptBroadcaster
 {
     public const string EventName = "ReceiptAdvanced";
     public async Task Advanced(Guid conversation, Guid membership, CancellationToken token)
@@ -25,7 +25,9 @@ public sealed class ReceiptBroadcaster(IServiceScopeFactory scopes, Conversation
         // A removed/rejoined membership must not publish a previous incarnation's progress.
         var current = members.SingleOrDefault(x => x.MembershipId == membership);
         if (current is not null)
-            await hub.Clients.Clients(connections.Subscribers(conversation, members.Select(x => x.UserId).ToArray()))
+            await hub.Clients.Clients(distributed.Enabled
+                    ? await distributed.Subscribers(conversation, members.ToDictionary(x => x.UserId, x => x.MembershipId), token)
+                    : connections.Subscribers(conversation, members.Select(x => x.UserId).ToArray()))
                 .SendAsync(EventName, new ReceiptAdvanced(conversation, current), token);
         await transaction.CommitAsync(token);
     }
