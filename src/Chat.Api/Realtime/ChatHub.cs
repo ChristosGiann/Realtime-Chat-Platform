@@ -132,7 +132,9 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
     {
         var actor = await ValidActor();
         await using var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted);
+        using var lockMeasurement = new ConversationLockMeasurement("typing.change");
         var members = await TypingMembers(conversationId, actor);
+        lockMeasurement.Acquired();
         if (distributed.Enabled)
         {
             var generation = connections.Subscription(Context.ConnectionId, conversationId)!.Value;
@@ -143,6 +145,7 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         else if (typing.Change(Context.ConnectionId, conversationId, actor, active))
             await typing.Publish(conversationId, actor, members.Keys.ToArray(), Context.ConnectionAborted);
         await transaction.CommitAsync(Context.ConnectionAborted);
+        lockMeasurement.Dispose();
     }
 
     public async Task<TypingSnapshot> GetTyping(Guid conversationId)

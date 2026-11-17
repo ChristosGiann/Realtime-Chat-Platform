@@ -29,9 +29,11 @@ public sealed class MessagesController(ChatDbContext db, ConversationAuthorizati
         try { await antiforgery.ValidateRequestAsync(HttpContext); }
         catch (AntiforgeryValidationException) { return Problem(statusCode: 400, title: "Invalid CSRF token."); }
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        using var lockMeasurement = new ConversationLockMeasurement("message.send");
         await db.Conversations.FromSqlInterpolated(
             $"SELECT * FROM conversations.\"Conversations\" WHERE \"Id\" = {conversationId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
+        lockMeasurement.Acquired();
         var access = await authorization.CheckAsync(conversationId, ConversationOperation.SendMessage, cancellationToken: cancellationToken);
         if (!access.Allowed) return Problem(statusCode: access.ErrorStatus, title: access.ErrorTitle);
         var existing = await db.Messages.AsNoTracking().SingleOrDefaultAsync(x => x.ClientMessageId == request.ClientMessageId, cancellationToken);
@@ -52,6 +54,7 @@ public sealed class MessagesController(ChatDbContext db, ConversationAuthorizati
             return KeyConflict();
         }
         await transaction.CommitAsync(cancellationToken);
+        lockMeasurement.Dispose();
         var response = ToResponse(message);
         // The durable write already succeeded. A delivery failure must not turn it into a failed send.
         try

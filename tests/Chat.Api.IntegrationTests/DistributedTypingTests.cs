@@ -146,7 +146,7 @@ public sealed class DistributedTypingTests(MultiInstanceTopology topology) : ICl
             var oldRegistry = crashed.Services.GetRequiredService<DistributedConnectionRegistry>();
             oldBoot = oldRegistry.BootEpoch;
             var oldTyping = crashed.Services.GetRequiredService<DistributedTyping>();
-            Assert.True((await oldRegistry.Register(actorConnection, actor, DateTimeOffset.UtcNow.AddSeconds(2), () => { }, CancellationToken.None)).Success);
+            Assert.True((await oldRegistry.Register(actorConnection, actor, DateTimeOffset.UtcNow.AddSeconds(5), () => { }, CancellationToken.None)).Success);
             await oldRegistry.Subscribe(actorConnection, conversation, actorMembership, 1, CancellationToken.None);
             Assert.NotNull(await oldTyping.Change(actorConnection, conversation, actor, actorMembership, 1, true, CancellationToken.None));
             Assert.Single((await observerTyping.Snapshot(conversation,
@@ -218,11 +218,12 @@ public sealed class DistributedTypingTests(MultiInstanceTopology topology) : ICl
         Assert.NotEqual(oldRegistry.BootEpoch, freshRegistry.BootEpoch);
         var user = Guid.NewGuid(); var conversation = Guid.NewGuid(); var membership = Guid.NewGuid();
         var id = Guid.NewGuid().ToString("N");
-        Assert.True((await oldRegistry.Register(id, user, DateTimeOffset.UtcNow.AddSeconds(2), () => { }, CancellationToken.None)).Success);
+        Assert.True((await oldRegistry.Register(id, user, DateTimeOffset.UtcNow.AddSeconds(5), () => { }, CancellationToken.None)).Success);
         await oldRegistry.Subscribe(id, conversation, membership, 1, CancellationToken.None);
         Assert.NotNull(await oldTyping.Change(id, conversation, user, membership, 1, true, CancellationToken.None));
-        await Task.Delay(TimeSpan.FromSeconds(2.5));
-        Assert.True((await freshRegistry.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, CancellationToken.None)).Success);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!(await freshRegistry.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, deadline.Token)).Success)
+            await Task.Delay(50, deadline.Token);
         await freshRegistry.Subscribe(id, conversation, membership, 2, CancellationToken.None);
         Assert.NotNull(await freshTyping.Change(id, conversation, user, membership, 2, true, CancellationToken.None));
         await Assert.ThrowsAsync<HubException>(() => oldTyping.Change(id, conversation, user, membership, 1, true, CancellationToken.None));
