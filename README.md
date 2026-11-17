@@ -6,7 +6,9 @@
 Το Stage 3 προσθέτει durable μηνύματα, ασφαλή retries, ιστορικό, read state και REST messaging UI.
 Το Stage 4 προσθέτει live SignalR μηνύματα, ασφαλείς subscriptions/revocation και REST resync μετά από reconnect.
 Το Stage 5 προσθέτει authorized presence/typing, durable delivery/read receipts και ασφαλή ανάκτηση στο React.
+Το Stage 6 προσθέτει Redis scale-out για πολλαπλά API instances, cross-instance revocation και πραγματική browser/E2E επαλήθευση.
 
+- [Stage 6 production handoff, deployment και γνωστά όρια](docs/stage6-production-handoff.md)
 - [Εκκίνηση, έλεγχοι και περιορισμοί Stage 1](docs/stage1-verification.md)
 - [Επαλήθευση Stage 2 και παράδοση στο Stage 3](docs/stage2-verification.md)
 - [Επαλήθευση Stage 3 και παράδοση στο Stage 4](docs/stage3-verification.md)

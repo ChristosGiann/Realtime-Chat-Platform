@@ -1,5 +1,7 @@
 # Distributed typing leases — #100
 
+Το έγγραφο καταγράφει το scope του #100. Η τελική Stage 6 κατάσταση περιγράφεται στο [production handoff](stage6-production-handoff.md).
+
 Όταν είναι ενεργά `Redis:Enabled` και `Redis:BackplaneEnabled`, το typing
 συντονίζεται στο Redis. Το Stage 5 local implementation παραμένει για
 single-instance λειτουργία χωρίς backplane. Η PostgreSQL είναι authority για
