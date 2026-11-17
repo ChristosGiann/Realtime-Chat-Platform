@@ -34,10 +34,12 @@ public sealed class ConversationMembershipController(ChatDbContext db, Conversat
         try { await antiforgery.ValidateRequestAsync(HttpContext); }
         catch (AntiforgeryValidationException) { return Problem(statusCode: 400, title: "Invalid CSRF token."); }
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        using var lockMeasurement = new ConversationLockMeasurement("membership.change");
         // Serialize membership changes for this conversation before reading permissions or members.
         await db.Conversations.FromSqlInterpolated(
             $"SELECT * FROM conversations.\"Conversations\" WHERE \"Id\" = {conversationId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
+        lockMeasurement.Acquired();
         var access = await authorization.CheckAsync(conversationId, operation, targetId, cancellationToken);
         if (!access.Allowed) return Problem(statusCode: access.ErrorStatus, title: access.ErrorTitle);
         var target = operation == ConversationOperation.Leave ? access.UserId!.Value : targetId!.Value;
@@ -96,6 +98,7 @@ public sealed class ConversationMembershipController(ChatDbContext db, Conversat
         }
         // A commit failure after valid ACKs must never restore old subscription generations.
         await transaction.CommitAsync(cancellationToken);
+        lockMeasurement.Dispose();
         await PostCommitNotification.Send(token => notifications.Changed(conversationId, target,
             operation == ConversationOperation.AddMember ? null : member!.MembershipId, token), logger);
         return NoContent();

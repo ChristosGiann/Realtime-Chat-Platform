@@ -164,6 +164,31 @@ public sealed class DistributedRevocationTests(MultiInstanceTopology topology) :
     }
 
     [Fact]
+    public async Task OwnerDisappearsDuringBarrierAndMembershipStillRollsBack()
+    {
+        var scenario = await Scenario(); using var owner = scenario.Owner;
+        var fake = await FakeOwner();
+        var subscriber = (await topology.A.Services.GetRequiredService<RedisConnection>().GetAsync()).GetSubscriber();
+        var queue = await subscriber.SubscribeAsync(RedisChannel.Literal(fake.Prefix + "revoke-command:" + fake.Owner));
+        var commandSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        queue.OnMessage(async _ =>
+        {
+            await RemoveFake(fake.Db, fake.Prefix, fake.Owner);
+            commandSeen.TrySetResult();
+        });
+        try
+        {
+            var pending = owner.DeleteAsync($"/api/conversations/{scenario.Conversation}/members/{scenario.Member}");
+            await commandSeen.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await pending).StatusCode);
+            using var scope = topology.A.Services.CreateScope();
+            Assert.True(await scope.ServiceProvider.GetRequiredService<ChatDbContext>().ConversationMembers
+                .AnyAsync(x => x.ConversationId == scenario.Conversation && x.UserId == scenario.Member));
+        }
+        finally { await queue.UnsubscribeAsync(); await RemoveFake(fake.Db, fake.Prefix, fake.Owner); }
+    }
+
+    [Fact]
     public async Task ExplicitOwnerNackReturns503AndRollsBackMembership()
     {
         var scenario = await Scenario(); using var owner = scenario.Owner;

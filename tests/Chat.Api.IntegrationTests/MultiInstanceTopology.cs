@@ -81,6 +81,29 @@ public sealed class MultiInstanceTopology : IAsyncLifetime
         catch { await DisposeAsync(); throw; }
     }
 
+    public async Task RestartAAsync()
+    {
+        await A.DisposeAsync();
+        A = CreateInstance("instance-a", backplane: true);
+        using var client = A.CreateClient();
+        AUrl = client.BaseAddress!;
+    }
+
+    public async Task RefreshHostsIfRedisEndpointChangedAsync()
+    {
+        var current = Redis.GetConnectionString();
+        if (current == redisConnectionString) return;
+        await B.DisposeAsync();
+        await A.DisposeAsync();
+        redisConnectionString = current;
+        A = CreateInstance("instance-a", backplane: true);
+        using var a = A.CreateClient();
+        AUrl = a.BaseAddress!;
+        B = CreateInstance("instance-b", backplane: true);
+        using var b = B.CreateClient();
+        BUrl = b.BaseAddress!;
+    }
+
     public async Task DisposeAsync()
     {
         if (B is not null) await B.DisposeAsync();
