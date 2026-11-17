@@ -26,7 +26,7 @@ const panel = (page: Page) => page.getByRole('region', { name: 'Μηνύματα
 async function sendUi(page: Page, body: string) {
   await page.getByLabel('Νέο μήνυμα', { exact: true }).fill(body)
   await panel(page).getByRole('button', { name: 'Αποστολή', exact: true }).click()
-  await expect(panel(page).getByText(body, { exact: true })).toBeVisible()
+  await expect(panel(page).getByRole('list', { name: 'Ιστορικό μηνυμάτων' }).getByText(body, { exact: true })).toBeVisible()
   await expect(page.getByLabel('Νέο μήνυμα', { exact: true })).toHaveValue('')
 }
 

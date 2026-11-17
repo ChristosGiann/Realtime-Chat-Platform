@@ -162,10 +162,15 @@ public sealed class DistributedPresenceTests(MultiInstanceTopology topology) : I
         Assert.NotEqual(old.BootEpoch, fresh.BootEpoch);
         var user = Guid.NewGuid(); var id = Guid.NewGuid().ToString("N");
         Assert.True((await old.Register(id, user, DateTimeOffset.UtcNow.AddSeconds(5), () => { }, CancellationToken.None)).Success);
+        Assert.True((await old.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while ((await old.Snapshot([user], deadline.Token)).Members[user].IsOnline)
             await Task.Delay(50, deadline.Token);
-        Assert.True((await fresh.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, CancellationToken.None)).Success);
+        // Presence can become offline before the old connection hash is fully expired.
+        // A new boot must wait for that exact old owner record, never overwrite it early.
+        using var registrationDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!(await fresh.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, registrationDeadline.Token)).Success)
+            await Task.Delay(50, registrationDeadline.Token);
         Assert.False((await old.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, CancellationToken.None)).Success);
         await old.Remove(id, user);
         Assert.True((await fresh.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
