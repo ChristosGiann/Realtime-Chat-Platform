@@ -38,14 +38,17 @@ function ConversationList({ selectedId }: { selectedId?: string }) {
     window.addEventListener('conversation-resynced', recovered)
     return () => { controller.abort(); active.current?.abort(); window.removeEventListener('conversation-resynced', recovered) }
   }, [])
-  return <aside className="panel conversation-list" aria-label="Λίστα συνομιλιών"><h2>Οι συνομιλίες μου</h2>
-    <button disabled={busy} onClick={() => void load()}>Ανανέωση λίστας</button>
+  return <aside className="conversation-list" aria-label="Λίστα συνομιλιών"><div className="conversation-list-header"><p className="eyebrow">Εισερχόμενα</p><h2>Οι συνομιλίες μου</h2>
+    <div className="conversation-list-actions"><a href="#/conversations/new">Νέα συνομιλία</a><a href="#/conversations">Όλες οι συνομιλίες</a></div>
+    <button disabled={busy} onClick={() => void load()}>Ανανέωση λίστας</button></div>
+    <div className="conversation-list-scroll">
     {busy && <p role="status">Φόρτωση συνομιλιών…</p>}
     {error && <p role="alert">{error}</p>}
     {!busy && !error && items.length === 0 && <p>Δεν έχεις ακόμη συνομιλίες.</p>}
-    <ul className="results">{items.map(item => <li key={item.id}><a href={`#/conversations/${item.id}`} aria-current={item.id === selectedId ? 'page' : undefined}>{title(item)}</a>
+    <ul className="results conversation-items">{items.map(item => <li key={item.id} className={item.id === selectedId ? 'conversation-item conversation-item--active' : 'conversation-item'}><a href={`#/conversations/${item.id}`} aria-current={item.id === selectedId ? 'page' : undefined}>{title(item)}</a>
       <p>{item.type === 'Group' ? 'Ομάδα' : 'Προσωπική'} · {item.memberCount} μέλη</p></li>)}</ul>
     {next !== null && <button disabled={busy} onClick={() => void load(next)}>Περισσότερες συνομιλίες</button>}
+    </div>
   </aside>
 }
 
@@ -97,6 +100,8 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
   const busy = loading || mutating
   const [error, setError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
+  const [showDetails, setShowDetails] = useState(() => window.innerWidth >= 1200 || window.innerWidth <= 700)
+  const detailsToggle = useRef<HTMLButtonElement | null>(null)
   const active = useRef<AbortController | null>(null)
   async function load(offset = 0) {
     active.current?.abort(); const controller = new AbortController(); active.current = controller
@@ -129,12 +134,21 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
       if (cause instanceof ApiError && [403, 404].includes(cause.status)) setUnavailable(true)
     } finally { setMutating(false) }
   }
-  return <section className="panel conversation-details" aria-label="Στοιχεία συνομιλίας">
-    {busy && <p role="status">Φόρτωση ή αποθήκευση…</p>}
-    {error && <p role="alert">{error}</p>}
-    <button disabled={busy} onClick={() => void load()}>Ανανέωση στοιχείων</button>
-    {details && !unavailable && <><h2>{title(details)}</h2><p>{details.type === 'Group' ? 'Ομαδική συνομιλία' : 'Προσωπική συνομιλία'} · {details.memberCount} μέλη</p>
-      <h3>Μέλη</h3><ul className="results">{details.members.map(member => <li key={member.userId}>
+  return <div className={showDetails ? 'conversation-content conversation-content--details' : 'conversation-content'}>
+    <section className="conversation-workspace" aria-label="Ενεργή συνομιλία">
+      <header className="conversation-workspace-header"><div><p className="eyebrow">Συνομιλία</p><h2>{details ? title(details) : 'Φόρτωση συνομιλίας…'}</h2>
+        {details && !unavailable && <p>{details.type === 'Group' ? 'Ομαδική συνομιλία' : 'Προσωπική συνομιλία'} · {details.memberCount} μέλη</p>}</div>
+        <button ref={detailsToggle} type="button" aria-expanded={showDetails} aria-controls={showDetails ? 'conversation-utility' : undefined} onClick={() => setShowDetails(value => !value)}>{showDetails ? 'Κλείσιμο στοιχείων' : 'Στοιχεία συνομιλίας'}</button>
+      </header>
+      {busy && <p className="conversation-workspace-notice" role="status">Φόρτωση ή αποθήκευση…</p>}
+      {error && <p className="conversation-workspace-notice" role="alert">{error}</p>}
+      {details && !unavailable && <MessagingPanel key={id} id={id} />}
+    </section>
+    {showDetails && <aside id="conversation-utility" className="conversation-utility" aria-label="Στοιχεία συνομιλίας">
+      <div className="conversation-utility-header"><p className="eyebrow">Πληροφορίες</p><h3>Στοιχεία συνομιλίας</h3>
+        <button className="conversation-utility-close" type="button" onClick={() => { setShowDetails(false); requestAnimationFrame(() => detailsToggle.current?.focus()) }}>Κλείσιμο στοιχείων</button>
+        <button disabled={busy} onClick={() => void load()}>Ανανέωση στοιχείων</button></div>
+      {details && !unavailable && <><h3>Μέλη</h3><ul className="results">{details.members.map(member => <li key={member.userId}>
         <a href={`#/profiles/${member.userId}`}>{member.profile?.displayName ?? member.userId}</a> <span>{member.role === 'Owner' ? 'Ιδιοκτήτης' : 'Μέλος'}</span>
         {details.type === 'Group' && details.myRole === 'Owner' && member.role !== 'Owner' && <button disabled={busy}
           onClick={() => void change(() => conversationsApi.remove(id, member.userId))} aria-label={`Αφαίρεση ${member.profile?.displayName ?? member.userId}`}>Αφαίρεση</button>}
@@ -144,18 +158,18 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
         <UserPicker disabled={busy} excluded={details.members.map(x => x.userId)} onSelect={person => void change(() => conversationsApi.add(id, person.userId))} />
         <p className="hint">Ο ιδιοκτήτης δεν μπορεί να αποχωρήσει ή να αφαιρεθεί.</p></>}
       {details.type === 'Group' && details.myRole === 'Member' && <button disabled={busy} onClick={() => void change(() => conversationsApi.leave(id), true)}>Αποχώρηση από ομάδα</button>}
-      <MessagingPanel key={id} id={id} />
-    </>}
-  </section>
+      </>}
+    </aside>}
+  </div>
 }
 
 export function ConversationsPage({ selectedId }: { selectedId?: string }) {
   const [revision, setRevision] = useState(0)
   function changed(left = false) { setRevision(x => x + 1); if (left) window.location.hash = '/conversations' }
-  return <><h1>Συνομιλίες</h1><div className="conversation-actions"><a href="#/conversations/new">Νέα συνομιλία</a><a href="#/conversations">Όλες οι συνομιλίες</a></div>
+  return <div className="conversation-page"><h1 className="visually-hidden">Συνομιλίες</h1>
     <div className="conversation-layout"><ConversationList key={revision} selectedId={selectedId} />
-      {selectedId === 'new' ? <CreateConversation onCreated={id => { changed(); window.location.hash = `/conversations/${id}` }} />
+      {selectedId === 'new' ? <div className="conversation-content conversation-content--create"><CreateConversation onCreated={id => { changed(); window.location.hash = `/conversations/${id}` }} /></div>
         : selectedId ? <ConversationDetails key={`${selectedId}-${revision}`} id={selectedId} onChanged={changed} />
-          : <section className="panel"><h2>Επίλεξε συνομιλία</h2><p>Άνοιξε μια συνομιλία από τη λίστα ή δημιούργησε μια νέα.</p></section>}
-    </div></>
+          : <section className="conversation-empty"><h2>Επίλεξε συνομιλία</h2><p>Άνοιξε μια συνομιλία από τη λίστα ή δημιούργησε μια νέα.</p></section>}
+    </div></div>
 }

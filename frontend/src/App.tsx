@@ -10,9 +10,11 @@ import { UserSearchPage } from './profiles/UserSearchPage'
 import { ConversationsPage } from './conversations/ConversationsPage'
 import { RealtimeProvider } from './messages/RealtimeProvider'
 import './App.css'
+import './shell.css'
 function Screen() {
   const auth = useAuth()
   const route = useRoute()
+  const isConversation = !!auth.user && (route === '/conversations' || route.startsWith('/conversations/'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -25,14 +27,14 @@ function Screen() {
     catch (cause) { setError(errorMessage(cause)) }
     finally { setBusy(false) }
   }
-  return <>
+  return <div className={isConversation ? 'app-frame app-frame--conversation' : 'app-frame'}>
     <header className="site-header"><a className="brand" href="#/app">Apothiki</a>
       <nav aria-label="Κύρια πλοήγηση">
-        {auth.user ? <><a href="#/conversations">Συνομιλίες</a><a href="#/profile">Το προφίλ μου</a><a href="#/users">Αναζήτηση</a><button onClick={logout} disabled={busy}>{busy ? 'Αποσύνδεση…' : 'Αποσύνδεση'}</button></>
+        {auth.user ? <><a href="#/conversations" aria-current={isConversation ? 'page' : undefined}>Συνομιλίες</a><a href="#/profile" aria-current={route === '/profile' ? 'page' : undefined}>Το προφίλ μου</a><a href="#/users" aria-current={route === '/users' ? 'page' : undefined}>Αναζήτηση</a><button onClick={logout} disabled={busy}>{busy ? 'Αποσύνδεση…' : 'Αποσύνδεση'}</button></>
           : <><a href="#/login">Σύνδεση</a><a href="#/register">Εγγραφή</a></>}
       </nav>
     </header>
-    <main>
+    <main className={isConversation ? 'app-main app-main--conversation' : 'app-main'}>
       {error && <p role="alert" className="error">{error}</p>}
       {route.startsWith('/profiles/') ? <PublicProfilePage key={route} id={route.slice('/profiles/'.length)} />
         : auth.status === 'loading' ? <p role="status">Έλεγχος συνεδρίας…</p>
@@ -47,6 +49,6 @@ function Screen() {
             <p>Η σύνδεσή σου είναι ενεργή.</p><p>{auth.user.email}</p></section>
           : <section className="panel"><h1>Η σελίδα δεν βρέθηκε</h1><a href="#/app">Επιστροφή στον λογαριασμό</a></section>}
     </main>
-  </>
+  </div>
 }
 export default function App() { return <AuthProvider><RealtimeProvider><Screen /></RealtimeProvider></AuthProvider> }
