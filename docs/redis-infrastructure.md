@@ -1,5 +1,7 @@
 # Redis infrastructure και δύο-instance topology — #97
 
+Το έγγραφο καταγράφει το scope του #97. Για την ολοκληρωμένη Stage 6 τοπολογία δείτε το [production handoff](stage6-production-handoff.md).
+
 Foundation του [Stage 6 design](stage6-distributed-semantics.md). Δεν ενεργοποιεί
 SignalR backplane, distributed registry/presence/typing/revocation ή production scale-out.
 PostgreSQL παραμένει η durable πηγή αλήθειας. Τα Stage 1–5 semantics δεν αλλάζουν.

@@ -1,5 +1,7 @@
 # Cross-instance membership revocation — #101
 
+This document records the #101 implementation. For the final Stage 6 deployment contract, see the [production handoff](stage6-production-handoff.md).
+
 ## Authority and ordering
 
 PostgreSQL remains the authority for membership, messages and receipts. Redis stores

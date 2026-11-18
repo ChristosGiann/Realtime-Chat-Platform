@@ -1,5 +1,7 @@
 # SignalR Redis backplane transport — #98
 
+Το έγγραφο καταγράφει το scope του #98 πριν από τα #99–#103. Η τελική κατάσταση και τα deployment requirements είναι στο [Stage 6 production handoff](stage6-production-handoff.md).
+
 Το #98 προσθέτει το επίσημο `Microsoft.AspNetCore.SignalR.StackExchangeRedis`
 **10.0.15**. Η 10.0.13/10.0.14 επηρεάζεται από
 [GHSA-wr8v-9x5q-ggcm](https://github.com/advisories/GHSA-wr8v-9x5q-ggcm).

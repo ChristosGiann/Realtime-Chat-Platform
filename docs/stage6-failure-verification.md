@@ -1,5 +1,7 @@
 # Stage 6 failure verification
 
+This document records the #102 verification. The [final Stage 6 handoff](stage6-production-handoff.md) includes the separate-process browser tests added in #103.
+
 The integration topology runs two independent TCP Kestrel hosts (A and B), one PostgreSQL container and one Redis container. The hosts share the database, Redis namespace and Data Protection key ring. They run inside the same test process, so this verifies host restart and cross-instance routing, but does not simulate an operating-system process kill or network partition. That remains an operational validation item for #103.
 
 ## Expected failure and recovery behavior

@@ -1,5 +1,7 @@
 # Distributed connection registry και presence — #99
 
+Το έγγραφο καταγράφει το scope του #99. Η τελική Stage 6 κατάσταση περιγράφεται στο [production handoff](stage6-production-handoff.md).
+
 Όταν `Redis:Enabled=true` και `Redis:BackplaneEnabled=true`, το hub χρησιμοποιεί
 Redis για προσωρινό connection ownership και presence σε περισσότερες από μία API
 instances. Το προηγούμενο local registry παραμένει για single-instance λειτουργία.

@@ -76,7 +76,7 @@ jobs:
         run: npm run test:ui
 
   stage1-e2e:
-    name: Stage 1–5 browser API PostgreSQL and SignalR
+    name: Stage 1–6 browser API PostgreSQL Redis and SignalR
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble
@@ -95,8 +95,16 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:8.4.8-alpine3.22
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       E2E_CONNECTION_STRING: Host=postgres;Port=5432;Database=stage1_e2e;Username=stage1_test;Password=stage1_test_only
+      E2E_REDIS_CONNECTION_STRING: redis:6379
     defaults:
       run:
         working-directory: frontend
@@ -119,3 +127,5 @@ jobs:
         run: npm run build
       - name: Migrate clean database and verify real browser flows
         run: npm run test:e2e
+      - name: Verify two-instance Stage 6 browser flows
+        run: npm run test:e2e:stage6
