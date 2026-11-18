@@ -47,6 +47,9 @@ builder.Services.AddHostedService(services => services.GetRequiredService<Distri
 builder.Services.AddSingleton<ConversationPresence>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ConversationTyping>();
+builder.Services.AddSingleton<DistributedTyping>();
+builder.Services.AddSingleton<RevocationBarrier>();
+builder.Services.AddHostedService(services => services.GetRequiredService<RevocationBarrier>());
 builder.Services.AddHostedService(services => services.GetRequiredService<ConversationTyping>());
 
 builder.Services.AddDbContext<ChatDbContext>((services, options) =>

@@ -134,7 +134,7 @@ async function liveSocket(page: Page, failInitial = false, deferSubscribe = fals
         const frame = JSON.parse(raw)
         if (frame.protocol) ws.send('{}\u001e')
         else if (frame.type === 1) {
-          if (frame.target === 'SetTyping') typingCalls.push(frame.arguments[1])
+          if (frame.target === 'SetTypingActivity') typingCalls.push(frame.arguments[1])
           if (['Subscribe', 'Unsubscribe'].includes(frame.target)) invocations.push(`${frame.target}:${frame.arguments[0]}`)
           const complete = () => ws.send(JSON.stringify({ type: 3, invocationId: frame.invocationId,
             ...(frame.target === 'GetTyping' ? { result: { conversationId: frame.arguments[0], items: [], version: 0 } } : {}),

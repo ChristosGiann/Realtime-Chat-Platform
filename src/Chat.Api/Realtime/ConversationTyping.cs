@@ -4,11 +4,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Chat.Api.Realtime;
 
-public sealed record TypingMember(Guid UserId, int ExpiresInMilliseconds);
-public sealed record TypingSnapshot(Guid ConversationId, IReadOnlyList<TypingMember> Items, long Version);
-public sealed record TypingChanged(Guid ConversationId, Guid UserId, int ExpiresInMilliseconds, long Version);
+public sealed record TypingMember(Guid UserId, int ExpiresInMilliseconds, long Version = 0, string? Lifetime = null);
+public sealed record TypingSnapshot(Guid ConversationId, IReadOnlyList<TypingMember> Items, long Version, string? Epoch = null);
+public sealed record TypingChanged(Guid ConversationId, Guid UserId, int ExpiresInMilliseconds, long Version,
+    string? Epoch = null, string? Lifetime = null);
 
-public sealed class ConversationTyping(ConversationConnections connections, TimeProvider clock, IServiceScopeFactory scopes,
+public sealed class ConversationTyping(ConversationConnections connections, DistributedConnectionRegistry registry, TimeProvider clock, IServiceScopeFactory scopes,
     IHubContext<ChatHub> hub, ILogger<ConversationTyping> logger) : BackgroundService
 {
     public const string EventName = "TypingChanged";
@@ -64,6 +65,7 @@ public sealed class ConversationTyping(ConversationConnections connections, Time
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (registry.Enabled) return;
         try
         {
             while (!stoppingToken.IsCancellationRequested)

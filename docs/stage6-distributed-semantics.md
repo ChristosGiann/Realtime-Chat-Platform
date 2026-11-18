@@ -1,5 +1,7 @@
 # Stage 6 — Distributed realtime semantics και failure model (#96)
 
+Ιστορικό design document του #96. Η τελική κατάσταση και οι απαιτήσεις deployment βρίσκονται στο [Stage 6 production handoff](stage6-production-handoff.md).
+
 Κατάσταση: **πρόταση architecture για review, όχι διαθέσιμη υλοποίηση**.
 Parent: [#95](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/95).
 Design: [#96](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/96).

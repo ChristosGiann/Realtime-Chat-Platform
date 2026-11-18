@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
@@ -17,6 +18,7 @@ public sealed class MultiInstanceTopology : IAsyncLifetime
     public PostgreSqlContainer Postgres { get; } = new PostgreSqlBuilder("postgres:18").Build();
     public RedisContainer Redis { get; } = new RedisBuilder(RedisImage).Build();
     public string RunId { get; } = Guid.NewGuid().ToString("N");
+    public bool FailBGroupRemoval { get; set; }
     public WebApplicationFactory<Program> A { get; private set; } = null!;
     public WebApplicationFactory<Program> B { get; private set; } = null!;
     public Uri AUrl { get; private set; } = null!;
@@ -24,7 +26,8 @@ public sealed class MultiInstanceTopology : IAsyncLifetime
     private string redisConnectionString = "";
     private string KeyPath => Path.Combine(Path.GetTempPath(), "chat-stage6-tests", RunId);
 
-    public WebApplicationFactory<Program> CreateInstance(string identity, string? runId = null, bool backplane = false)
+    public WebApplicationFactory<Program> CreateInstance(string identity, string? runId = null, bool backplane = false,
+        bool failGroupRemoval = false)
     {
         var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.UseEnvironment("Development")
@@ -49,7 +52,11 @@ public sealed class MultiInstanceTopology : IAsyncLifetime
                     ["RealtimeInstance:InstanceId"] = identity,
                     ["SharedDataProtection:KeyRingPath"] = KeyPath,
                     ["SharedDataProtection:ApplicationName"] = $"chat-tests-{RunId}"
-                })));
+                }))
+                .ConfigureServices(services =>
+                {
+                    if (failGroupRemoval) services.AddSingleton<IGroupManager, FailingRemovalGroups>();
+                }));
         factory.UseKestrel(options => options.Listen(System.Net.IPAddress.Loopback, 0));
         return factory;
     }
@@ -67,11 +74,34 @@ public sealed class MultiInstanceTopology : IAsyncLifetime
                 await scope.ServiceProvider.GetRequiredService<ChatDbContext>().Database.MigrateAsync();
             // Persist a shared key before starting another independent host/provider.
             A.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector("topology").Protect("ready");
-            B = CreateInstance("instance-b", backplane: true);
+            B = CreateInstance("instance-b", backplane: true, failGroupRemoval: FailBGroupRemoval);
             using var b = B.CreateClient();
             BUrl = b.BaseAddress!;
         }
         catch { await DisposeAsync(); throw; }
+    }
+
+    public async Task RestartAAsync()
+    {
+        await A.DisposeAsync();
+        A = CreateInstance("instance-a", backplane: true);
+        using var client = A.CreateClient();
+        AUrl = client.BaseAddress!;
+    }
+
+    public async Task RefreshHostsIfRedisEndpointChangedAsync()
+    {
+        var current = Redis.GetConnectionString();
+        if (current == redisConnectionString) return;
+        await B.DisposeAsync();
+        await A.DisposeAsync();
+        redisConnectionString = current;
+        A = CreateInstance("instance-a", backplane: true);
+        using var a = A.CreateClient();
+        AUrl = a.BaseAddress!;
+        B = CreateInstance("instance-b", backplane: true);
+        using var b = B.CreateClient();
+        BUrl = b.BaseAddress!;
     }
 
     public async Task DisposeAsync()
@@ -82,5 +112,13 @@ public sealed class MultiInstanceTopology : IAsyncLifetime
         await Postgres.DisposeAsync();
         // Only this fixture's generated directory, never a configured production key ring.
         if (Directory.Exists(KeyPath)) Directory.Delete(KeyPath, recursive: true);
+    }
+
+    private sealed class FailingRemovalGroups : IGroupManager
+    {
+        public Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+        public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Simulated remote group cleanup failure.");
     }
 }

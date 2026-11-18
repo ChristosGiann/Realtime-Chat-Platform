@@ -46,8 +46,10 @@ public sealed class ReadStateController(ChatDbContext db, ConversationAuthorizat
     {
         // Same ordering as send/membership mutations, including authorization and the response snapshot.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        using var lockMeasurement = new ConversationLockMeasurement("receipt.advance");
         await db.Conversations.FromSqlInterpolated($"SELECT * FROM conversations.\"Conversations\" WHERE \"Id\" = {conversationId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
+        lockMeasurement.Acquired();
         var access = await authorization.CheckAsync(conversationId, ConversationOperation.Read, cancellationToken: cancellationToken);
         if (!access.Allowed) return Problem(statusCode: access.ErrorStatus, title: access.ErrorTitle);
         var actor = access.UserId!.Value;
@@ -73,6 +75,7 @@ public sealed class ReadStateController(ChatDbContext db, ConversationAuthorizat
             WHERE member."ConversationId" = {conversationId} AND member."UserId" = {actor}
             """).SingleAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        lockMeasurement.Dispose();
         if (changed) await PostCommitNotification.Send(token => broadcaster.Advanced(conversationId, currentMembership, token), logger);
         return Ok(state);
     }

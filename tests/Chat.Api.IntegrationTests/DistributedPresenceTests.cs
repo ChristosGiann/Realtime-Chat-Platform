@@ -141,12 +141,13 @@ public sealed class DistributedPresenceTests(MultiInstanceTopology topology) : I
         var registry = topology.A.Services.GetRequiredService<DistributedConnectionRegistry>();
         var user = Guid.NewGuid();
         var id = Guid.NewGuid().ToString("N");
-        var expiry = DateTimeOffset.UtcNow.AddSeconds(2);
+        var expiry = DateTimeOffset.UtcNow.AddSeconds(5);
         var registered = await registry.Register(id, user, expiry, () => { }, CancellationToken.None);
         Assert.True(registered.Success);
         Assert.True((await registry.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
-        await Task.Delay(TimeSpan.FromSeconds(2.5));
-        Assert.False((await registry.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while ((await registry.Snapshot([user], deadline.Token)).Members[user].IsOnline)
+            await Task.Delay(50, deadline.Token);
         await registry.Remove(id, user);
     }
 
@@ -160,10 +161,16 @@ public sealed class DistributedPresenceTests(MultiInstanceTopology topology) : I
         Assert.Equal(old.InstanceId, fresh.InstanceId);
         Assert.NotEqual(old.BootEpoch, fresh.BootEpoch);
         var user = Guid.NewGuid(); var id = Guid.NewGuid().ToString("N");
-        Assert.True((await old.Register(id, user, DateTimeOffset.UtcNow.AddSeconds(2), () => { }, CancellationToken.None)).Success);
-        await Task.Delay(TimeSpan.FromSeconds(2.5));
-        Assert.False((await old.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
-        Assert.True((await fresh.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, CancellationToken.None)).Success);
+        Assert.True((await old.Register(id, user, DateTimeOffset.UtcNow.AddSeconds(5), () => { }, CancellationToken.None)).Success);
+        Assert.True((await old.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while ((await old.Snapshot([user], deadline.Token)).Members[user].IsOnline)
+            await Task.Delay(50, deadline.Token);
+        // Presence can become offline before the old connection hash is fully expired.
+        // A new boot must wait for that exact old owner record, never overwrite it early.
+        using var registrationDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!(await fresh.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, registrationDeadline.Token)).Success)
+            await Task.Delay(50, registrationDeadline.Token);
         Assert.False((await old.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, CancellationToken.None)).Success);
         await old.Remove(id, user);
         Assert.True((await fresh.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
@@ -184,7 +191,7 @@ public sealed class DistributedPresenceTests(MultiInstanceTopology topology) : I
             Assert.True((await owner.Register(id, user, DateTimeOffset.UtcNow.AddMinutes(1), () => { }, CancellationToken.None)).Success);
             Assert.True((await observer.Snapshot([user], CancellationToken.None)).Members[user].IsOnline);
         }
-        // This synthetic registry connection has no SignalR disconnect callback; only the process stops.
+        // This synthetic registry connection has no SignalR disconnect callback; graceful host stop cleans it.
         await crashed.DisposeAsync();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(18));
         while ((await observer.Snapshot([user], deadline.Token)).Members[user].IsOnline)

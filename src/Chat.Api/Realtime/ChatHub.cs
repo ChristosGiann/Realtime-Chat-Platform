@@ -12,7 +12,8 @@ namespace Chat.Api.Realtime;
 
 [Authorize(Policy = AuthorizationPolicies.AuthenticatedUser)]
 public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, ConversationAuthorization authorization,
-    ConversationConnections connections, DistributedConnectionRegistry distributed, ConversationPresence presence, ConversationTyping typing) : Hub
+    ConversationConnections connections, DistributedConnectionRegistry distributed, ConversationPresence presence,
+    ConversationTyping typing, DistributedTyping distributedTyping) : Hub
 {
     public const string Endpoint = "/hubs/chat";
 
@@ -42,6 +43,7 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        distributedTyping.ForgetConnection(Context.ConnectionId);
         var localChange = connections.Disconnected(Context.ConnectionId);
         var user = sessions.GetUserId(Context.User);
         var change = distributed.Enabled && user is not null
@@ -80,7 +82,11 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         if (conversationId == Guid.Empty) throw new HubException("Conversation not available.");
         // Removal affects only this connection, and is safe even after membership was removed.
         await connections.Unsubscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
-        if (distributed.Enabled) await distributed.Unsubscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
+        if (distributed.Enabled)
+        {
+            await distributed.Unsubscribe(Context.ConnectionId, conversationId, Context.ConnectionAborted);
+            distributedTyping.ForgetSubscription(Context.ConnectionId, conversationId);
+        }
     }
 
     public async Task<PresencePage> GetPresence(Guid conversationId, int offset, int limit)
@@ -114,14 +120,32 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         return result;
     }
 
-    public async Task SetTyping(Guid conversationId, bool active)
+    public Task SetTyping(Guid conversationId, bool active) => SetTypingCore(conversationId, active, null);
+
+    public Task SetTypingActivity(Guid conversationId, bool active, Guid activityId)
+    {
+        if (activityId == Guid.Empty) throw new HubException("Typing activity unavailable.");
+        return SetTypingCore(conversationId, active, activityId);
+    }
+
+    private async Task SetTypingCore(Guid conversationId, bool active, Guid? activityId)
     {
         var actor = await ValidActor();
         await using var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted);
+        using var lockMeasurement = new ConversationLockMeasurement("typing.change");
         var members = await TypingMembers(conversationId, actor);
-        if (typing.Change(Context.ConnectionId, conversationId, actor, active))
-            await typing.Publish(conversationId, actor, members, Context.ConnectionAborted);
+        lockMeasurement.Acquired();
+        if (distributed.Enabled)
+        {
+            var generation = connections.Subscription(Context.ConnectionId, conversationId)!.Value;
+            var change = await distributedTyping.Change(Context.ConnectionId, conversationId, actor, members[actor],
+                generation, active, Context.ConnectionAborted, activityId);
+            if (change is not null) await distributedTyping.Publish(change, members, Context.ConnectionAborted);
+        }
+        else if (typing.Change(Context.ConnectionId, conversationId, actor, active))
+            await typing.Publish(conversationId, actor, members.Keys.ToArray(), Context.ConnectionAborted);
         await transaction.CommitAsync(Context.ConnectionAborted);
+        lockMeasurement.Dispose();
     }
 
     public async Task<TypingSnapshot> GetTyping(Guid conversationId)
@@ -129,12 +153,15 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         var actor = await ValidActor();
         await using var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted);
         var members = await TypingMembers(conversationId, actor);
-        var snapshot = typing.Snapshot(conversationId, members);
+        var snapshot = distributed.Enabled
+            ? await distributedTyping.Snapshot(conversationId, members, Context.ConnectionId, actor,
+                connections.Subscription(Context.ConnectionId, conversationId)!.Value, Context.ConnectionAborted)
+            : typing.Snapshot(conversationId, members.Keys.ToArray());
         await transaction.CommitAsync(Context.ConnectionAborted);
         return snapshot;
     }
 
-    private async Task<List<Guid>> TypingMembers(Guid conversationId, Guid actor)
+    private async Task<Dictionary<Guid, Guid>> TypingMembers(Guid conversationId, Guid actor)
     {
         if (conversationId == Guid.Empty) throw new HubException("Conversation not available.");
         await db.Conversations.FromSqlInterpolated($"SELECT * FROM conversations.\"Conversations\" WHERE \"Id\" = {conversationId} FOR UPDATE")
@@ -142,7 +169,8 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         if (connections.Subscription(Context.ConnectionId, conversationId) is null
             || !await authorization.ReadableConversationsFor(actor).AnyAsync(x => x.Id == conversationId, Context.ConnectionAborted))
             throw new HubException("Conversation not available.");
-        return await db.ConversationMembers.Where(x => x.ConversationId == conversationId).Select(x => x.UserId).ToListAsync(Context.ConnectionAborted);
+        return await db.ConversationMembers.Where(x => x.ConversationId == conversationId)
+            .Select(x => new { x.UserId, x.MembershipId }).ToDictionaryAsync(x => x.UserId, x => x.MembershipId, Context.ConnectionAborted);
     }
 
     private async Task<Guid> ValidActor()
@@ -150,6 +178,7 @@ public sealed class ChatHub(ChatSessionValidator sessions, ChatDbContext db, Con
         if (!connections.IsActive(Context.ConnectionId) || !await sessions.IsValidAsync(Context.User))
         {
             Context.Abort();
+            distributedTyping.ForgetConnection(Context.ConnectionId);
             var localChange = connections.Disconnected(Context.ConnectionId);
             var user = sessions.GetUserId(Context.User);
             var change = distributed.Enabled && user is not null
