@@ -26,7 +26,7 @@ function Screen() {
     finally { setBusy(false) }
   }
   return <>
-    <header className="site-header"><a className="brand" href="#/app">Realtime Chat</a>
+    <header className="site-header"><a className="brand" href="#/app">Apothiki</a>
       <nav aria-label="Κύρια πλοήγηση">
         {auth.user ? <><a href="#/conversations">Συνομιλίες</a><a href="#/profile">Το προφίλ μου</a><a href="#/users">Αναζήτηση</a><button onClick={logout} disabled={busy}>{busy ? 'Αποσύνδεση…' : 'Αποσύνδεση'}</button></>
           : <><a href="#/login">Σύνδεση</a><a href="#/register">Εγγραφή</a></>}

@@ -19,7 +19,7 @@ test('real authorized typing appears for the other member and clears on idle/sen
     await expect(bob.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
     await bob.getByLabel('Νέο μήνυμα', { exact: true }).fill('Bob writing')
     await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toBeVisible()
-    await bob.getByRole('link', { name: 'Realtime Chat' }).click()
+    await bob.getByRole('link', { name: 'Apothiki' }).click()
     await expect(page.getByLabel('Πληκτρολόγηση', { exact: true })).toHaveCount(0)
   } finally { await context.close() }
 })

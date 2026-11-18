@@ -36,7 +36,7 @@ export function AuthForm({ register }: { register: boolean }) {
       {messages && <p id={`${name}-error`} className="error">{messages.join(' ')}</p>}</div>
   }
   if (created) return <section className="panel"><h1>Ο λογαριασμός δημιουργήθηκε</h1><p role="status">Μπορείς τώρα να συνδεθείς.</p><a href="#/login">Μετάβαση στη σύνδεση</a></section>
-  return <section className="panel auth-panel"><p className="eyebrow">Realtime Chat Platform</p>
+  return <section className="panel auth-panel"><p className="eyebrow">Apothiki</p>
     <h1>{register ? 'Δημιουργία λογαριασμού' : 'Σύνδεση'}</h1>
     <p>{register ? 'Δημιούργησε το προφίλ σου για να ξεκινήσεις.' : 'Συνδέσου για να διαχειριστείς τον λογαριασμό σου.'}</p>
     <form onSubmit={submit} aria-busy={busy}><fieldset disabled={busy}>

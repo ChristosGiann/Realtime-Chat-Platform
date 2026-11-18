@@ -18,7 +18,7 @@ test('edit profile sends only editable fields with CSRF and updates current user
   await page.getByLabel('Βιογραφικό').fill('')
   await page.getByRole('button', { name: 'Αποθήκευση', exact: true }).click()
   await expect(page.getByRole('status')).toHaveText('Το προφίλ αποθηκεύτηκε.')
-  await page.getByRole('link', { name: 'Realtime Chat', exact: true }).click()
+  await page.getByRole('link', { name: 'Apothiki', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Καλώς ήρθες, Updated' })).toBeVisible()
 })
 test('profile validation is attached to the relevant field', async ({ page }) => {
