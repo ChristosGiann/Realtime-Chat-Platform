@@ -1,0 +1,26 @@
+/* Semantic palette shared by current screens and future Stage 7 layouts. */
+:root {
+  color-scheme: dark;
+  --font-body: Inter, ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --line-body: 1.55;
+  --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem; --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
+  --radius-control: .5rem; --radius-item: .75rem; --radius-panel: 1rem;
+  --duration-fast: 150ms; --control-height: 2.75rem;
+  --surface-canvas: #111625; --surface-header: #171d30; --surface-panel: #1b2237; --surface-input: #151b2d; --surface-item: #242d45;
+  --border-subtle: #35405a; --border-control: #697693;
+  --text-primary: #f3f4fa; --text-secondary: #bac4d7; --text-link: #c9b8ff; --text-link-hover: #e3daff; --text-on-action: #ffffff;
+  --action-primary: #6543c6; --action-primary-hover: #7959de; --focus-ring: #cba8ff; --selection-bg: #54447f;
+  --status-danger: #ffaaaa; --status-success: #7ee0bd; --status-warning: #ffd384; --status-info: #a9caff; --status-online: #70dcb2;
+  --shadow-panel: 0 .75rem 2.5rem #06091633;
+}
+@media (max-width: 700px) {
+  :root {
+    color-scheme: light;
+    --surface-canvas: #f5f6fa; --surface-header: #ffffff; --surface-panel: #ffffff; --surface-input: #ffffff; --surface-item: #edf1f8;
+    --border-subtle: #d6dce8; --border-control: #8190a8;
+    --text-primary: #17243c; --text-secondary: #475a73; --text-link: #244ba3; --text-link-hover: #173878; --text-on-action: #ffffff;
+    --action-primary: #2957b8; --action-primary-hover: #1c458f; --focus-ring: #3266cf; --selection-bg: #d9e6ff;
+    --status-danger: #a32436; --status-success: #116b4e; --status-warning: #825300; --status-info: #2451a0; --status-online: #167a55;
+    --shadow-panel: 0 .5rem 2rem #182d5012;
+  }
+}
