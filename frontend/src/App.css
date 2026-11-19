@@ -25,11 +25,6 @@ textarea { resize: vertical; min-height: 120px; }
 .conversation-layout { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
 .conversation-actions { display: flex; gap: var(--space-4); flex-wrap: wrap; margin: var(--space-4) 0; }
 .conversation-layout .panel { min-width: 0; padding: var(--space-5); }
-.conversation-layout .results li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
-.conversation-list .results p { width: 100%; margin: 0; }
-.conversation-list [aria-current="page"] { text-decoration-thickness: 3px; }
-.messaging-panel { border-top: 1px solid var(--border-subtle); margin-top: var(--space-6); padding-top: var(--space-4); }
-.messaging-panel button { margin: .4rem .6rem .4rem 0; }
 .message-list { list-style: none; padding: 0; }
 .message-list li { padding: var(--space-3); margin: .6rem 0; border-radius: var(--radius-item); background: var(--surface-item); }
 .message-list time { font-size: .8rem; color: var(--text-secondary); }

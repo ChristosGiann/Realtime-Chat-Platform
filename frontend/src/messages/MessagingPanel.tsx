@@ -166,23 +166,26 @@ export function MessagingPanel({ id }: { id: string }) {
     catch (cause) { if (alive.current) fail(cause) }
     finally { mutation.current = false; if (alive.current) setReading(false) }
   }
-  return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><h3>Μηνύματα</h3>
+  return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><div className="messaging-toolbar"><div><h3>Μηνύματα</h3>
     {!unavailable && <p aria-label="Παρουσία συνομιλίας">{presence === null ? 'Παρουσία: άγνωστη / επανασύνδεση' : `${presence.filter(x => x.userId !== user?.id && x.isOnline).length} online · ${presence.filter(x => x.userId !== user?.id && !x.isOnline).length} offline (άλλα μέλη)`}</p>}
-    <p role="status" aria-label="Κατάσταση live σύνδεσης">{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p>
-    <button disabled={busy} onClick={() => void load()}>Ανανέωση μηνυμάτων</button>
+    <p role="status" aria-label="Κατάσταση live σύνδεσης" data-live-status={live}>{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p></div>
+    <button disabled={busy} onClick={() => void load()}>Ανανέωση μηνυμάτων</button></div>
+    <div className="messaging-progress">
     {loading && <p role="status">Φόρτωση μηνυμάτων…</p>}
     {error && <p role="alert">{error}</p>}
     {read && <p aria-live="polite">Μη αναγνωσμένα: {read.unreadCount}</p>}
     {readTarget && !unavailable && <><button disabled={busy || !receipts} onClick={() => void markRead()}>Σήμανση ιστορικού ως αναγνωσμένου</button>
       <p className="hint">Περιλαμβάνει όλα τα μηνύματα έως το νεότερο που φορτώθηκε από το ιστορικό.</p></>}
-    {reading && <p role="status">Αποθήκευση ανάγνωσης…</p>}
+    {reading && <p role="status">Αποθήκευση ανάγνωσης…</p>}</div>
+    <div className="message-history">
     {next && !unavailable && <button disabled={busy} onClick={() => void load(true)}>Παλαιότερα μηνύματα</button>}
     {!loading && !error && items.length === 0 && <p>Δεν υπάρχουν ακόμη μηνύματα.</p>}
     <ol className="message-list" aria-label="Ιστορικό μηνυμάτων">{[...items].reverse().map(item => <li key={item.id} data-message-id={item.id}>
       <strong>{item.sender.displayName ?? 'Χρήστης'}</strong> <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString('el-GR')}</time>
       <p className="message-body">{item.body}</p>
       {item.senderId === user?.id && <p aria-label="Κατάσταση μηνύματος">{receiptLabel(receipts, user.id, item)}</p>}
-    </li>)}</ol>
+    </li>)}</ol></div>
+    <div className="message-composer">
     {typingUsers.some(id => receipts?.items.some(member => member.userId === id)) && !unavailable && <p role="status" aria-label="Πληκτρολόγηση">{typingUsers.filter(id => receipts?.items.some(member => member.userId === id)).length === 1 ? 'Ένας χρήστης πληκτρολογεί…' : `${typingUsers.filter(id => receipts?.items.some(member => member.userId === id)).length} χρήστες πληκτρολογούν…`}</p>}
     {!unavailable && <form onSubmit={send}><div className="field"><label htmlFor={`message-${id}`}>Νέο μήνυμα</label>
       <textarea id={`message-${id}`} value={body} maxLength={4000} disabled={busy || pending !== null}
@@ -193,7 +196,7 @@ export function MessagingPanel({ id }: { id: string }) {
       {pending && !sending && <p>Η αποστολή δεν επιβεβαιώθηκε. Επανάλαβε το ίδιο μήνυμα με ασφάλεια πριν γράψεις άλλο.</p>}
       {sending && <p role="status">Αποστολή μηνύματος…</p>}
       <button disabled={busy} type="submit">{pending && !sending ? 'Επανάληψη αποστολής' : 'Αποστολή'}</button>
-    </form>}
+    </form>}</div>
   </section>
 }
 
