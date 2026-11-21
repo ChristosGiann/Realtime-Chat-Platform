@@ -7,7 +7,7 @@ a:hover { color: var(--text-link-hover); }
 button, input, textarea { font: inherit; }
 button { min-height: var(--control-height); background: var(--action-primary); color: var(--text-on-action); border: 1px solid var(--action-primary); border-radius: var(--radius-control); padding: var(--space-2) var(--space-4); cursor: pointer; transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease; }
 button:hover:not(:disabled) { background: var(--action-primary-hover); border-color: var(--action-primary-hover); }
-button:disabled { opacity: .6; cursor: wait; }
+button:disabled { opacity: .85; cursor: not-allowed; }
 :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
 ::selection { background: var(--selection-bg); color: var(--text-primary); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }

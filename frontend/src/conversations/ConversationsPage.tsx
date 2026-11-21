@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import type { RefObject } from 'react'
 import { ApiError } from '../api/client'
 import { conversationsApi, conversationError } from '../api/conversations'
 import type { Conversation, Details, Member } from '../api/conversations'
@@ -12,7 +13,7 @@ import type { MembershipConfirmation } from './ConversationDetailsPanel'
 
 const title = (conversation: Conversation) => conversation.name ?? 'Direct συνομιλία'
 
-function ConversationList({ selectedId }: { selectedId?: string }) {
+function ConversationList({ selectedId, focusRef }: { selectedId?: string; focusRef: RefObject<HTMLElement | null> }) {
   const [items, setItems] = useState<Conversation[]>([])
   const [next, setNext] = useState<number | null>(null)
   const [busy, setBusy] = useState(true)
@@ -40,7 +41,7 @@ function ConversationList({ selectedId }: { selectedId?: string }) {
     window.addEventListener('conversation-resynced', recovered)
     return () => { controller.abort(); active.current?.abort(); window.removeEventListener('conversation-resynced', recovered) }
   }, [])
-  return <aside className="conversation-list" aria-label="Λίστα συνομιλιών"><div className="conversation-list-header"><p className="eyebrow">Εισερχόμενα</p><h2>Οι συνομιλίες μου</h2>
+  return <aside ref={focusRef} tabIndex={-1} className="conversation-list" aria-label="Λίστα συνομιλιών"><div className="conversation-list-header"><p className="eyebrow">Εισερχόμενα</p><h2>Οι συνομιλίες μου</h2>
     <div className="conversation-list-actions"><a href="#/conversations/new">Νέα συνομιλία</a><a href="#/conversations">Όλες οι συνομιλίες</a></div>
     <button disabled={busy} onClick={() => void load()}>Ανανέωση λίστας</button></div>
     <div className="conversation-list-scroll">
@@ -95,7 +96,15 @@ function CreateConversation({ onCreated }: { onCreated: (id: string) => void }) 
   </section>
 }
 
-function ConversationDetails({ id, onChanged, detailsRoute }: { id: string; onChanged: (left?: boolean) => void; detailsRoute: boolean }) {
+function confirmationValid(details: Details | null, confirmation: MembershipConfirmation) {
+  if (details?.type !== 'Group') return false
+  return confirmation.kind === 'leave' ? details.myRole === 'Member' : details.myRole === 'Owner'
+    && details.members.some(member => member.userId === confirmation.userId && member.role !== 'Owner')
+}
+
+function ConversationDetails({ id, onChanged, detailsRoute, focusAfterChange, onFocusHandled }: {
+  id: string; onChanged: (left?: boolean) => void; detailsRoute: boolean; focusAfterChange: boolean; onFocusHandled: () => void
+}) {
   const [details, setDetails] = useState<Details | null>(null)
   const [loading, setLoading] = useState(true)
   const [mutating, setMutating] = useState(false)
@@ -121,11 +130,35 @@ function ConversationDetails({ id, onChanged, detailsRoute }: { id: string; onCh
     return () => query.removeEventListener('change', update)
   }, [])
   useEffect(() => {
-    if (!mobile) return
-    if (detailsRoute) requestAnimationFrame(() => detailsPanel.current?.focus())
-    else if (previousDetailsRoute.current) requestAnimationFrame(() => detailsToggle.current?.focus())
+    if (mobile && detailsRoute) requestAnimationFrame(() => detailsPanel.current?.focus())
+    else if (!detailsRoute && previousDetailsRoute.current) {
+      actionTrigger.current = null
+      requestAnimationFrame(() => { setConfirmation(null); detailsToggle.current?.focus() })
+    }
     previousDetailsRoute.current = detailsRoute
   }, [detailsRoute, mobile])
+  useEffect(() => {
+    if (panelOpen || !confirmation) return
+    actionTrigger.current = null
+    requestAnimationFrame(() => { setConfirmation(null); detailsToggle.current?.focus() })
+  }, [panelOpen, confirmation])
+  useEffect(() => {
+    if (!confirmation || confirmationValid(details, confirmation)) return
+    const trigger = actionTrigger.current
+    actionTrigger.current = null
+    requestAnimationFrame(() => {
+      setConfirmation(null)
+      requestAnimationFrame(() => {
+        if (trigger?.isConnected && !trigger.disabled) trigger.focus()
+        else (panelOpen ? detailsPanel.current : detailsToggle.current)?.focus()
+      })
+    })
+  }, [details, confirmation, panelOpen])
+  useEffect(() => {
+    if (!focusAfterChange) return
+    requestAnimationFrame(() => (panelOpen ? detailsPanel.current : detailsToggle.current)?.focus())
+    onFocusHandled()
+  }, [focusAfterChange, onFocusHandled, panelOpen])
   async function load(offset = 0) {
     active.current?.abort(); const controller = new AbortController(); active.current = controller
     setLoading(true); setError('')
@@ -158,6 +191,12 @@ function ConversationDetails({ id, onChanged, detailsRoute }: { id: string; onCh
       const label = action === 'add' ? 'Αδυναμία προσθήκης μέλους' : action === 'remove' ? 'Αδυναμία αφαίρεσης μέλους' : 'Αδυναμία αποχώρησης'
       setError(`${label}: ${conversationError(cause)}`)
       if (cause instanceof ApiError && [403, 404].includes(cause.status)) { setUnavailable(true); setDetails(null) }
+      if (action !== 'add') requestAnimationFrame(() => {
+        const trigger = actionTrigger.current
+        if (trigger?.isConnected && !trigger.disabled) trigger.focus()
+        else (panelOpen ? detailsPanel.current : detailsToggle.current)?.focus()
+        actionTrigger.current = null
+      })
     } finally { mutation.current = false; setMutating(false); setConfirmation(null) }
   }
   function requestConfirmation(action: MembershipConfirmation, trigger: HTMLButtonElement) {
@@ -168,10 +207,13 @@ function ConversationDetails({ id, onChanged, detailsRoute }: { id: string; onCh
   }
   function cancelConfirmation() {
     setConfirmation(null)
-    requestAnimationFrame(() => actionTrigger.current?.focus())
+    const trigger = actionTrigger.current
+    actionTrigger.current = null
+    requestAnimationFrame(() => trigger?.isConnected ? trigger.focus() : detailsPanel.current?.focus())
   }
   function confirmMembershipChange() {
     if (!confirmation || !details || busy || unavailable) return
+    if (!confirmationValid(details, confirmation)) return
     if (confirmation.kind === 'remove') {
       if (details.type !== 'Group' || details.myRole !== 'Owner' || !details.members.some(member => member.userId === confirmation.userId && member.role !== 'Owner')) return
       void change(() => conversationsApi.remove(id, confirmation.userId), 'remove')
@@ -189,7 +231,7 @@ function ConversationDetails({ id, onChanged, detailsRoute }: { id: string; onCh
       requestAnimationFrame(() => (window.innerWidth > 700 && window.innerWidth < 1200 ? detailsClose.current : detailsPanel.current)?.focus())
     }
   }
-  return <div className={panelOpen ? `conversation-content conversation-content--details${detailsRoute ? ' conversation-content--details-route' : ''}` : 'conversation-content'}>
+  return <div className={panelOpen ? 'conversation-content conversation-content--details' : 'conversation-content'}>
     <section className="conversation-workspace" aria-label="Ενεργή συνομιλία">
       <header className="conversation-workspace-header"><a className="mobile-chat-back" href="#/conversations" aria-label="Πίσω στις συνομιλίες">←</a><div><p className="eyebrow">Συνομιλία</p><h2>{details ? title(details) : 'Φόρτωση συνομιλίας…'}</h2>
         {details && !unavailable && <p>{details.type === 'Group' ? 'Ομαδική συνομιλία' : 'Προσωπική συνομιλία'} · {details.memberCount} μέλη</p>}</div>
@@ -200,7 +242,7 @@ function ConversationDetails({ id, onChanged, detailsRoute }: { id: string; onCh
       {details && !unavailable && <MessagingPanel key={id} id={id} type={details.type} />}
     </section>
     {panelOpen && <aside id="conversation-utility" ref={detailsPanel} tabIndex={-1} className="conversation-utility" aria-label="Στοιχεία συνομιλίας">
-      <div className="conversation-utility-header"><a className="mobile-details-back" href={`#/conversations/${id}`} aria-label="Πίσω στη συνομιλία">←</a><p className="eyebrow">Πληροφορίες</p><h3>Στοιχεία συνομιλίας</h3>
+      <div className="conversation-utility-header"><a className="mobile-details-back" href={`#/conversations/${id}`} aria-label="Πίσω στη συνομιλία">←</a><p className="eyebrow">Πληροφορίες</p><h2>Στοιχεία συνομιλίας</h2>
         <button ref={detailsClose} className="conversation-utility-close" type="button" disabled={busy} onClick={() => { setShowDetails(false); setConfirmation(null); if (detailsRoute) window.location.hash = `/conversations/${id}`; requestAnimationFrame(() => detailsToggle.current?.focus()) }}>Κλείσιμο στοιχείων</button>
         <button disabled={busy} onClick={() => void load()}>Ανανέωση στοιχείων</button></div>
       <ConversationDetailsPanel details={details} busy={busy} loading={loading} error={error} unavailable={unavailable}
@@ -214,11 +256,25 @@ function ConversationDetails({ id, onChanged, detailsRoute }: { id: string; onCh
 
 export function ConversationsPage({ selectedId, detailsRoute = false }: { selectedId?: string; detailsRoute?: boolean }) {
   const [revision, setRevision] = useState(0)
-  function changed(left = false) { setRevision(x => x + 1); if (left) window.location.hash = '/conversations' }
+  const [focusAfterChange, setFocusAfterChange] = useState(false)
+  const focusListAfterLeave = useRef(false)
+  const list = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!selectedId && focusListAfterLeave.current) {
+      requestAnimationFrame(() => list.current?.focus())
+      focusListAfterLeave.current = false
+    }
+  }, [selectedId])
+  function changed(left = false) {
+    setRevision(x => x + 1)
+    if (left) { focusListAfterLeave.current = true; window.location.hash = '/conversations' }
+    else setFocusAfterChange(true)
+  }
   return <div className={`conversation-page${selectedId ? ' conversation-page--selected' : ''}${detailsRoute ? ' conversation-page--details' : ''}`}><h1 className="visually-hidden">Συνομιλίες</h1>
-    <div className="conversation-layout"><ConversationList key={revision} selectedId={selectedId} />
+    <div className="conversation-layout"><ConversationList key={revision} selectedId={selectedId} focusRef={list} />
       {selectedId === 'new' ? <div className="conversation-content conversation-content--create"><a className="mobile-create-back" href="#/conversations">← Πίσω στις συνομιλίες</a><CreateConversation onCreated={id => { changed(); window.location.hash = `/conversations/${id}` }} /></div>
-        : selectedId ? <ConversationDetails key={`${selectedId}-${revision}`} id={selectedId} detailsRoute={detailsRoute} onChanged={changed} />
+        : selectedId ? <ConversationDetails key={`${selectedId}-${revision}`} id={selectedId} detailsRoute={detailsRoute} onChanged={changed}
+          focusAfterChange={focusAfterChange} onFocusHandled={() => setFocusAfterChange(false)} />
           : <section className="conversation-empty"><h2>Επίλεξε συνομιλία</h2><p>Άνοιξε μια συνομιλία από τη λίστα ή δημιούργησε μια νέα.</p></section>}
     </div></div>
 }

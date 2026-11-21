@@ -28,6 +28,7 @@ test('profile validation is attached to the relevant field', async ({ page }) =>
   await page.getByLabel('URL εικόνας προφίλ (HTTPS)').fill('http://example.test/avatar')
   await page.getByRole('button', { name: 'Αποθήκευση', exact: true }).click()
   await expect(page.getByLabel('URL εικόνας προφίλ (HTTPS)')).toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByLabel('URL εικόνας προφίλ (HTTPS)')).toHaveAttribute('aria-describedby', 'avatarUrl-error')
   await expect(page.getByText('HTTPS required.')).toBeVisible()
 })
 test('public profile remains public during session outage and renders text safely', async ({ page }) => {

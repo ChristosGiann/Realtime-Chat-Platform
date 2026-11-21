@@ -108,6 +108,7 @@ test('owner can add and remove members while owner actions remain protected', as
   await page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true }).click()
   await page.getByRole('button', { name: 'Επιβεβαίωση αφαίρεσης' }).click()
   await expect(page.getByRole('link', { name: 'Bob', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('complementary', { name: 'Στοιχεία συνομιλίας' })).toBeFocused()
   expect(removals).toBe(1)
   await expect(page.getByRole('button', { name: 'Αποχώρηση από ομάδα' })).toHaveCount(0)
 })
@@ -130,6 +131,25 @@ test('member can leave and list is refreshed', async ({ page }) => {
   await expect.poll(() => leaves).toBe(1)
   await expect(page.getByText('Δεν έχεις ακόμη συνομιλίες.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Επίλεξε συνομιλία' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Λίστα συνομιλιών' })).toBeFocused()
+})
+
+test('membership refresh clears stale confirmation, unlocks actions and never removes a missing member', async ({ page }) => {
+  await session(page); await list(page, [summary])
+  let members = [member(owner, 'Alice', 'Owner'), member(bob, 'Bob')]
+  let removals = 0
+  await page.route(`**/api/conversations/${group}?*`, route => route.fulfill({ json: { ...summary, memberCount: members.length, members, nextOffset: null } }))
+  await page.route(`**/api/conversations/${group}/members/${bob}`, route => { removals++; return route.fulfill({ status: 204 }) })
+  await page.goto(`/#/conversations/${group}`)
+  await page.getByRole('button', { name: 'Αφαίρεση Bob' }).click()
+  await expect(page.getByRole('button', { name: 'Επιβεβαίωση αφαίρεσης' })).toBeFocused()
+  members = [member(owner, 'Alice', 'Owner')]
+  await page.evaluate(() => window.dispatchEvent(new Event('conversation-resynced')))
+  await expect(page.getByRole('group', { name: 'Επιβεβαίωση αφαίρεσης Bob' })).toHaveCount(0)
+  await expect(page.getByRole('complementary', { name: 'Στοιχεία συνομιλίας' })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Αναζήτηση ατόμων' })).toBeEnabled()
+  await page.keyboard.press('Enter')
+  expect(removals).toBe(0)
 })
 
 test('membership refresh cannot enable another mutation before the pending response completes', async ({ page }) => {
@@ -195,6 +215,9 @@ for (const status of [403, 409]) {
     await page.getByRole('button', { name: 'Επιβεβαίωση αφαίρεσης' }).click()
     await expect(page.getByRole('alert')).toContainText(status === 403 ? 'Δεν έχεις δικαίωμα' : 'δεν επιτρέπεται')
     if (status === 403) await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toHaveCount(0)
-    else await expect(page.getByRole('link', { name: 'Bob', exact: true })).toBeVisible()
+    else {
+      await expect(page.getByRole('link', { name: 'Bob', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toBeFocused()
+    }
   })
 }
