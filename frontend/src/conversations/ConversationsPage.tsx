@@ -142,7 +142,7 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
       </header>
       {busy && <p className="conversation-workspace-notice" role="status">Φόρτωση ή αποθήκευση…</p>}
       {error && <p className="conversation-workspace-notice" role="alert">{error}</p>}
-      {details && !unavailable && <MessagingPanel key={id} id={id} />}
+      {details && !unavailable && <MessagingPanel key={id} id={id} type={details.type} />}
     </section>
     {showDetails && <aside id="conversation-utility" className="conversation-utility" aria-label="Στοιχεία συνομιλίας">
       <div className="conversation-utility-header"><p className="eyebrow">Πληροφορίες</p><h3>Στοιχεία συνομιλίας</h3>

@@ -11,6 +11,7 @@ import { ConversationsPage } from './conversations/ConversationsPage'
 import { RealtimeProvider } from './messages/RealtimeProvider'
 import './App.css'
 import './shell.css'
+import './chat.css'
 function Screen() {
   const auth = useAuth()
   const route = useRoute()
