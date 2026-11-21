@@ -95,7 +95,7 @@ function CreateConversation({ onCreated }: { onCreated: (id: string) => void }) 
   </section>
 }
 
-function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?: boolean) => void }) {
+function ConversationDetails({ id, onChanged, detailsRoute }: { id: string; onChanged: (left?: boolean) => void; detailsRoute: boolean }) {
   const [details, setDetails] = useState<Details | null>(null)
   const [loading, setLoading] = useState(true)
   const [mutating, setMutating] = useState(false)
@@ -103,14 +103,29 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
   const [error, setError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
   const [confirmation, setConfirmation] = useState<MembershipConfirmation | null>(null)
-  const [showDetails, setShowDetails] = useState(() => window.innerWidth >= 1200 || window.innerWidth <= 700)
+  const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 700px)').matches)
+  const [showDetails, setShowDetails] = useState(() => window.innerWidth >= 1200)
+  const panelOpen = mobile ? detailsRoute : showDetails || detailsRoute
   const detailsToggle = useRef<HTMLButtonElement | null>(null)
   const detailsPanel = useRef<HTMLElement | null>(null)
   const detailsClose = useRef<HTMLButtonElement | null>(null)
+  const previousDetailsRoute = useRef(detailsRoute)
   const confirmButton = useRef<HTMLButtonElement | null>(null)
   const actionTrigger = useRef<HTMLButtonElement | null>(null)
   const mutation = useRef(false)
   const active = useRef<AbortController | null>(null)
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 700px)')
+    const update = () => setMobile(query.matches)
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+  useEffect(() => {
+    if (!mobile) return
+    if (detailsRoute) requestAnimationFrame(() => detailsPanel.current?.focus())
+    else if (previousDetailsRoute.current) requestAnimationFrame(() => detailsToggle.current?.focus())
+    previousDetailsRoute.current = detailsRoute
+  }, [detailsRoute, mobile])
   async function load(offset = 0) {
     active.current?.abort(); const controller = new AbortController(); active.current = controller
     setLoading(true); setError('')
@@ -164,25 +179,29 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
   }
   function toggleDetails() {
     if (busy) return
-    if (showDetails) { setShowDetails(false); setConfirmation(null) }
+    if (mobile) {
+      window.location.hash = detailsRoute ? `/conversations/${id}` : `/conversations/${id}/details`
+      return
+    }
+    if (panelOpen) { setShowDetails(false); setConfirmation(null); if (detailsRoute) window.location.hash = `/conversations/${id}` }
     else {
       setShowDetails(true)
       requestAnimationFrame(() => (window.innerWidth > 700 && window.innerWidth < 1200 ? detailsClose.current : detailsPanel.current)?.focus())
     }
   }
-  return <div className={showDetails ? 'conversation-content conversation-content--details' : 'conversation-content'}>
+  return <div className={panelOpen ? `conversation-content conversation-content--details${detailsRoute ? ' conversation-content--details-route' : ''}` : 'conversation-content'}>
     <section className="conversation-workspace" aria-label="Ενεργή συνομιλία">
-      <header className="conversation-workspace-header"><div><p className="eyebrow">Συνομιλία</p><h2>{details ? title(details) : 'Φόρτωση συνομιλίας…'}</h2>
+      <header className="conversation-workspace-header"><a className="mobile-chat-back" href="#/conversations" aria-label="Πίσω στις συνομιλίες">←</a><div><p className="eyebrow">Συνομιλία</p><h2>{details ? title(details) : 'Φόρτωση συνομιλίας…'}</h2>
         {details && !unavailable && <p>{details.type === 'Group' ? 'Ομαδική συνομιλία' : 'Προσωπική συνομιλία'} · {details.memberCount} μέλη</p>}</div>
-        <button ref={detailsToggle} type="button" disabled={busy} aria-expanded={showDetails} aria-controls={showDetails ? 'conversation-utility' : undefined} onClick={toggleDetails}>{showDetails ? 'Κλείσιμο στοιχείων' : 'Στοιχεία συνομιλίας'}</button>
+        <button ref={detailsToggle} type="button" disabled={busy} aria-expanded={panelOpen} aria-controls={panelOpen ? 'conversation-utility' : undefined} onClick={toggleDetails}>{panelOpen ? 'Κλείσιμο στοιχείων' : 'Στοιχεία συνομιλίας'}</button>
       </header>
-      {!showDetails && busy && <p className="conversation-workspace-notice" role="status">Φόρτωση ή αποθήκευση…</p>}
-      {!showDetails && error && <p className="conversation-workspace-notice" role="alert">{error}</p>}
+      {!panelOpen && busy && <p className="conversation-workspace-notice" role="status">Φόρτωση ή αποθήκευση…</p>}
+      {!panelOpen && error && <p className="conversation-workspace-notice" role="alert">{error}</p>}
       {details && !unavailable && <MessagingPanel key={id} id={id} type={details.type} />}
     </section>
-    {showDetails && <aside id="conversation-utility" ref={detailsPanel} tabIndex={-1} className="conversation-utility" aria-label="Στοιχεία συνομιλίας">
-      <div className="conversation-utility-header"><p className="eyebrow">Πληροφορίες</p><h3>Στοιχεία συνομιλίας</h3>
-        <button ref={detailsClose} className="conversation-utility-close" type="button" disabled={busy} onClick={() => { setShowDetails(false); setConfirmation(null); requestAnimationFrame(() => detailsToggle.current?.focus()) }}>Κλείσιμο στοιχείων</button>
+    {panelOpen && <aside id="conversation-utility" ref={detailsPanel} tabIndex={-1} className="conversation-utility" aria-label="Στοιχεία συνομιλίας">
+      <div className="conversation-utility-header"><a className="mobile-details-back" href={`#/conversations/${id}`} aria-label="Πίσω στη συνομιλία">←</a><p className="eyebrow">Πληροφορίες</p><h3>Στοιχεία συνομιλίας</h3>
+        <button ref={detailsClose} className="conversation-utility-close" type="button" disabled={busy} onClick={() => { setShowDetails(false); setConfirmation(null); if (detailsRoute) window.location.hash = `/conversations/${id}`; requestAnimationFrame(() => detailsToggle.current?.focus()) }}>Κλείσιμο στοιχείων</button>
         <button disabled={busy} onClick={() => void load()}>Ανανέωση στοιχείων</button></div>
       <ConversationDetailsPanel details={details} busy={busy} loading={loading} error={error} unavailable={unavailable}
         confirmation={confirmation} confirmRef={confirmButton} onRefresh={() => void load()} onMore={offset => void load(offset)}
@@ -193,13 +212,13 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
   </div>
 }
 
-export function ConversationsPage({ selectedId }: { selectedId?: string }) {
+export function ConversationsPage({ selectedId, detailsRoute = false }: { selectedId?: string; detailsRoute?: boolean }) {
   const [revision, setRevision] = useState(0)
   function changed(left = false) { setRevision(x => x + 1); if (left) window.location.hash = '/conversations' }
-  return <div className="conversation-page"><h1 className="visually-hidden">Συνομιλίες</h1>
+  return <div className={`conversation-page${selectedId ? ' conversation-page--selected' : ''}${detailsRoute ? ' conversation-page--details' : ''}`}><h1 className="visually-hidden">Συνομιλίες</h1>
     <div className="conversation-layout"><ConversationList key={revision} selectedId={selectedId} />
-      {selectedId === 'new' ? <div className="conversation-content conversation-content--create"><CreateConversation onCreated={id => { changed(); window.location.hash = `/conversations/${id}` }} /></div>
-        : selectedId ? <ConversationDetails key={`${selectedId}-${revision}`} id={selectedId} onChanged={changed} />
+      {selectedId === 'new' ? <div className="conversation-content conversation-content--create"><a className="mobile-create-back" href="#/conversations">← Πίσω στις συνομιλίες</a><CreateConversation onCreated={id => { changed(); window.location.hash = `/conversations/${id}` }} /></div>
+        : selectedId ? <ConversationDetails key={`${selectedId}-${revision}`} id={selectedId} detailsRoute={detailsRoute} onChanged={changed} />
           : <section className="conversation-empty"><h2>Επίλεξε συνομιλία</h2><p>Άνοιξε μια συνομιλία από τη λίστα ή δημιούργησε μια νέα.</p></section>}
     </div></div>
 }

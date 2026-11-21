@@ -179,10 +179,10 @@ export function MessagingPanel({ id, type }: { id: string; type: 'Direct' | 'Gro
   return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><div className="messaging-toolbar"><div><h3>Μηνύματα</h3>
     {!unavailable && <p className="presence-state" data-presence={presence === null ? 'unknown' : presence.some(x => x.userId !== user?.id && x.isOnline) ? 'online' : 'offline'} aria-label="Παρουσία συνομιλίας">{presence === null ? 'Παρουσία: άγνωστη / επανασύνδεση' : `${presence.filter(x => x.userId !== user?.id && x.isOnline).length} online · ${presence.filter(x => x.userId !== user?.id && !x.isOnline).length} offline (άλλα μέλη)`}</p>}
     <p role="status" aria-label="Κατάσταση live σύνδεσης" data-live-status={live}>{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p></div>
-    <button disabled={busy} onClick={() => void load()}>Ανανέωση μηνυμάτων</button></div>
+    <button disabled={busy} aria-label="Ανανέωση μηνυμάτων" onClick={() => void load()}><span className="mobile-condense-desktop">Ανανέωση μηνυμάτων</span><span className="mobile-condense-short" aria-hidden="true">Ανανέωση</span></button></div>
     <div className="messaging-progress">
     {read && <p className="unread-state" data-has-unread={read.unreadCount > 0} aria-live="polite">Μη αναγνωσμένα: {read.unreadCount}</p>}
-    {readTarget && !unavailable && <><button disabled={busy || !receipts} onClick={() => void markRead()}>Σήμανση ιστορικού ως αναγνωσμένου</button>
+    {readTarget && !unavailable && <><button disabled={busy || !receipts} aria-label="Σήμανση ιστορικού ως αναγνωσμένου" onClick={() => void markRead()}><span className="mobile-condense-desktop">Σήμανση ιστορικού ως αναγνωσμένου</span><span className="mobile-condense-short" aria-hidden="true">Ανάγνωση</span></button>
       <p className="hint visually-hidden">Έως το νεότερο μήνυμα που φορτώθηκε.</p></>}
     {reading && <p role="status">Αποθήκευση ανάγνωσης…</p>}</div>
     <div className="message-history">
