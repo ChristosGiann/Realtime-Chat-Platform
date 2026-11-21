@@ -12,6 +12,7 @@ import { RealtimeProvider } from './messages/RealtimeProvider'
 import './App.css'
 import './shell.css'
 import './chat.css'
+import './details.css'
 function Screen() {
   const auth = useAuth()
   const route = useRoute()
