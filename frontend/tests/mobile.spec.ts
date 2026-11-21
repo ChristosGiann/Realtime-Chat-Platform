@@ -31,6 +31,29 @@ async function noOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 }
 
+async function listFillsLayout(page: Page) {
+  const list = await page.getByRole('complementary', { name: 'Λίστα συνομιλιών' }).boundingBox()
+  expect(list).toBeTruthy()
+  expect(list!.width).toBeGreaterThanOrEqual(page.viewportSize()!.width - 1)
+}
+
+test('mobile list with short titles fills the viewport through the 700/701 boundary', async ({ page }) => {
+  await setup(page)
+  await page.route('**/api/conversations?*', route => route.fulfill({ json: { items: [{ ...summary, name: 'Product design' }], nextOffset: null } }))
+  for (const width of [320, 390, 430, 700]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/#/conversations')
+    await expect(page.getByRole('link', { name: 'Product design', exact: true })).toBeVisible()
+    await listFillsLayout(page)
+    await noOverflow(page)
+  }
+  await page.setViewportSize({ width: 701, height: 844 })
+  await page.goto('/#/conversations')
+  const list = await page.getByRole('complementary', { name: 'Λίστα συνομιλιών' }).boundingBox()
+  expect(list!.width).toBeLessThan(701)
+  await noOverflow(page)
+})
+
 test('mobile list → chat → details is one screen at a time, including deep refresh and back', async ({ page }, testInfo) => {
   await setup(page)
   for (const [width, height] of [[320, 568], [360, 800], [390, 844], [430, 932]]) {
@@ -39,6 +62,7 @@ test('mobile list → chat → details is one screen at a time, including deep r
     await expect(page.getByRole('complementary', { name: 'Λίστα συνομιλιών' })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Ενεργή συνομιλία' })).toBeHidden()
     await noOverflow(page)
+    await listFillsLayout(page)
     const row = page.getByRole('link', { name, exact: true })
     expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     if (width === 390) await page.screenshot({ path: testInfo.outputPath('mobile-list.png') })
@@ -139,6 +163,9 @@ test('keyboard opens mobile details, returns to chat and validates the composer'
 test('700/701 boundary keeps a single accessible details surface and clear focus', async ({ page }) => {
   await setup(page)
   await page.setViewportSize({ width: 700, height: 800 })
+  await page.goto('/#/conversations')
+  await listFillsLayout(page)
+  await noOverflow(page)
   await page.goto(`/#/conversations/${group}/details`)
   await expect(page.getByRole('complementary', { name: 'Στοιχεία συνομιλίας' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Πίσω στη συνομιλία' })).toBeVisible()
