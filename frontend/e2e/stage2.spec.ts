@@ -103,6 +103,7 @@ test('real Group UI creation, owner add/remove, member leave and cross-user reje
     const removal = page.waitForResponse(response => response.request().method() === 'DELETE'
       && response.url() === `${api}/api/conversations/${id}/members/${bob.id}`)
     await page.getByRole('button', { name: `Αφαίρεση ${bob.userName}`, exact: true }).click()
+    await page.getByRole('button', { name: 'Επιβεβαίωση αφαίρεσης' }).click()
     expect((await removal).status()).toBe(204)
     await expect(page.getByRole('link', { name: bob.userName, exact: true })).toHaveCount(0)
     expect((await bobPage.request.get(`${api}/api/conversations/${id}`)).status()).toBe(404)
@@ -111,6 +112,7 @@ test('real Group UI creation, owner add/remove, member leave and cross-user reje
     await carolPage.getByRole('link', { name, exact: true }).click()
     await expect(carolPage.getByRole('heading', { name: 'Προσθήκη μέλους', exact: true })).toHaveCount(0)
     await carolPage.getByRole('button', { name: 'Αποχώρηση από ομάδα' }).click()
+    await carolPage.getByRole('button', { name: 'Επιβεβαίωση αποχώρησης' }).click()
     await expect(carolPage.getByText('Δεν έχεις ακόμη συνομιλίες.')).toBeVisible()
     saved = await details(page.request, id)
     expect(saved.memberCount).toBe(1); expect(saved.members[0].userId).toBe(alice.id)

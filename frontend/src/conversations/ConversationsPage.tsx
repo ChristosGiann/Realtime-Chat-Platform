@@ -2,11 +2,13 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import { conversationsApi, conversationError } from '../api/conversations'
-import type { Conversation, Details } from '../api/conversations'
+import type { Conversation, Details, Member } from '../api/conversations'
 import type { PublicProfile } from '../api/profiles'
 import { useAuth } from '../auth/context'
 import { UserPicker } from './UserPicker'
 import { MessagingPanel } from '../messages/MessagingPanel'
+import { ConversationDetailsPanel } from './ConversationDetailsPanel'
+import type { MembershipConfirmation } from './ConversationDetailsPanel'
 
 const title = (conversation: Conversation) => conversation.name ?? 'Direct συνομιλία'
 
@@ -100,8 +102,14 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
   const busy = loading || mutating
   const [error, setError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
+  const [confirmation, setConfirmation] = useState<MembershipConfirmation | null>(null)
   const [showDetails, setShowDetails] = useState(() => window.innerWidth >= 1200 || window.innerWidth <= 700)
   const detailsToggle = useRef<HTMLButtonElement | null>(null)
+  const detailsPanel = useRef<HTMLElement | null>(null)
+  const detailsClose = useRef<HTMLButtonElement | null>(null)
+  const confirmButton = useRef<HTMLButtonElement | null>(null)
+  const actionTrigger = useRef<HTMLButtonElement | null>(null)
+  const mutation = useRef(false)
   const active = useRef<AbortController | null>(null)
   async function load(offset = 0) {
     active.current?.abort(); const controller = new AbortController(); active.current = controller
@@ -112,7 +120,7 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
       setDetails(previous => offset && previous ? { ...result, members: [...new Map([...previous.members, ...result.members].map(x => [x.userId, x])).values()] } : result)
       setUnavailable(false)
     } catch (cause) {
-      if (!controller.signal.aborted) { setError(conversationError(cause)); setDetails(null) }
+      if (!controller.signal.aborted) { setError(`Αδυναμία φόρτωσης στοιχείων: ${conversationError(cause)}`); setDetails(null); setConfirmation(null) }
     } finally { if (!controller.signal.aborted) setLoading(false) }
   }
   const refreshAfterRecovery = useEffectEvent(() => { void load() })
@@ -120,45 +128,67 @@ function ConversationDetails({ id, onChanged }: { id: string; onChanged: (left?:
     const controller = new AbortController(); active.current = controller
     void conversationsApi.details(id, 0, controller.signal).then(result => {
       if (!controller.signal.aborted) setDetails(result)
-    }).catch(cause => { if (!controller.signal.aborted) setError(conversationError(cause)) })
+    }).catch(cause => { if (!controller.signal.aborted) setError(`Αδυναμία φόρτωσης στοιχείων: ${conversationError(cause)}`) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     const recovered = () => { refreshAfterRecovery() }
     window.addEventListener('conversation-resynced', recovered)
     return () => { controller.abort(); active.current?.abort(); window.removeEventListener('conversation-resynced', recovered) }
   }, [id])
-  async function change(operation: () => Promise<void>, left = false) {
+  async function change(operation: () => Promise<void>, action: 'add' | 'remove' | 'leave', left = false) {
+    if (mutation.current || loading || unavailable) return
+    mutation.current = true
     setMutating(true); setError('')
     try { await operation(); onChanged(left) }
     catch (cause) {
-      setError(conversationError(cause))
-      if (cause instanceof ApiError && [403, 404].includes(cause.status)) setUnavailable(true)
-    } finally { setMutating(false) }
+      const label = action === 'add' ? 'Αδυναμία προσθήκης μέλους' : action === 'remove' ? 'Αδυναμία αφαίρεσης μέλους' : 'Αδυναμία αποχώρησης'
+      setError(`${label}: ${conversationError(cause)}`)
+      if (cause instanceof ApiError && [403, 404].includes(cause.status)) { setUnavailable(true); setDetails(null) }
+    } finally { mutation.current = false; setMutating(false); setConfirmation(null) }
+  }
+  function requestConfirmation(action: MembershipConfirmation, trigger: HTMLButtonElement) {
+    if (busy || unavailable) return
+    actionTrigger.current = trigger
+    setConfirmation(action)
+    requestAnimationFrame(() => confirmButton.current?.focus())
+  }
+  function cancelConfirmation() {
+    setConfirmation(null)
+    requestAnimationFrame(() => actionTrigger.current?.focus())
+  }
+  function confirmMembershipChange() {
+    if (!confirmation || !details || busy || unavailable) return
+    if (confirmation.kind === 'remove') {
+      if (details.type !== 'Group' || details.myRole !== 'Owner' || !details.members.some(member => member.userId === confirmation.userId && member.role !== 'Owner')) return
+      void change(() => conversationsApi.remove(id, confirmation.userId), 'remove')
+    } else if (details.type === 'Group' && details.myRole === 'Member') void change(() => conversationsApi.leave(id), 'leave', true)
+  }
+  function toggleDetails() {
+    if (busy) return
+    if (showDetails) { setShowDetails(false); setConfirmation(null) }
+    else {
+      setShowDetails(true)
+      requestAnimationFrame(() => (window.innerWidth > 700 && window.innerWidth < 1200 ? detailsClose.current : detailsPanel.current)?.focus())
+    }
   }
   return <div className={showDetails ? 'conversation-content conversation-content--details' : 'conversation-content'}>
     <section className="conversation-workspace" aria-label="Ενεργή συνομιλία">
       <header className="conversation-workspace-header"><div><p className="eyebrow">Συνομιλία</p><h2>{details ? title(details) : 'Φόρτωση συνομιλίας…'}</h2>
         {details && !unavailable && <p>{details.type === 'Group' ? 'Ομαδική συνομιλία' : 'Προσωπική συνομιλία'} · {details.memberCount} μέλη</p>}</div>
-        <button ref={detailsToggle} type="button" aria-expanded={showDetails} aria-controls={showDetails ? 'conversation-utility' : undefined} onClick={() => setShowDetails(value => !value)}>{showDetails ? 'Κλείσιμο στοιχείων' : 'Στοιχεία συνομιλίας'}</button>
+        <button ref={detailsToggle} type="button" disabled={busy} aria-expanded={showDetails} aria-controls={showDetails ? 'conversation-utility' : undefined} onClick={toggleDetails}>{showDetails ? 'Κλείσιμο στοιχείων' : 'Στοιχεία συνομιλίας'}</button>
       </header>
-      {busy && <p className="conversation-workspace-notice" role="status">Φόρτωση ή αποθήκευση…</p>}
-      {error && <p className="conversation-workspace-notice" role="alert">{error}</p>}
+      {!showDetails && busy && <p className="conversation-workspace-notice" role="status">Φόρτωση ή αποθήκευση…</p>}
+      {!showDetails && error && <p className="conversation-workspace-notice" role="alert">{error}</p>}
       {details && !unavailable && <MessagingPanel key={id} id={id} type={details.type} />}
     </section>
-    {showDetails && <aside id="conversation-utility" className="conversation-utility" aria-label="Στοιχεία συνομιλίας">
+    {showDetails && <aside id="conversation-utility" ref={detailsPanel} tabIndex={-1} className="conversation-utility" aria-label="Στοιχεία συνομιλίας">
       <div className="conversation-utility-header"><p className="eyebrow">Πληροφορίες</p><h3>Στοιχεία συνομιλίας</h3>
-        <button className="conversation-utility-close" type="button" onClick={() => { setShowDetails(false); requestAnimationFrame(() => detailsToggle.current?.focus()) }}>Κλείσιμο στοιχείων</button>
+        <button ref={detailsClose} className="conversation-utility-close" type="button" disabled={busy} onClick={() => { setShowDetails(false); setConfirmation(null); requestAnimationFrame(() => detailsToggle.current?.focus()) }}>Κλείσιμο στοιχείων</button>
         <button disabled={busy} onClick={() => void load()}>Ανανέωση στοιχείων</button></div>
-      {details && !unavailable && <><h3>Μέλη</h3><ul className="results">{details.members.map(member => <li key={member.userId}>
-        <a href={`#/profiles/${member.userId}`}>{member.profile?.displayName ?? member.userId}</a> <span>{member.role === 'Owner' ? 'Ιδιοκτήτης' : 'Μέλος'}</span>
-        {details.type === 'Group' && details.myRole === 'Owner' && member.role !== 'Owner' && <button disabled={busy}
-          onClick={() => void change(() => conversationsApi.remove(id, member.userId))} aria-label={`Αφαίρεση ${member.profile?.displayName ?? member.userId}`}>Αφαίρεση</button>}
-      </li>)}</ul>
-      {details.nextOffset !== null && <button disabled={busy} onClick={() => void load(details.nextOffset!)}>Περισσότερα μέλη</button>}
-      {details.type === 'Group' && details.myRole === 'Owner' && <><h3>Προσθήκη μέλους</h3>
-        <UserPicker disabled={busy} excluded={details.members.map(x => x.userId)} onSelect={person => void change(() => conversationsApi.add(id, person.userId))} />
-        <p className="hint">Ο ιδιοκτήτης δεν μπορεί να αποχωρήσει ή να αφαιρεθεί.</p></>}
-      {details.type === 'Group' && details.myRole === 'Member' && <button disabled={busy} onClick={() => void change(() => conversationsApi.leave(id), true)}>Αποχώρηση από ομάδα</button>}
-      </>}
+      <ConversationDetailsPanel details={details} busy={busy} loading={loading} error={error} unavailable={unavailable}
+        confirmation={confirmation} confirmRef={confirmButton} onRefresh={() => void load()} onMore={offset => void load(offset)}
+        onAdd={person => void change(() => conversationsApi.add(id, person.userId), 'add')}
+        onRemove={(member: Member, trigger) => requestConfirmation({ kind: 'remove', userId: member.userId, name: member.profile?.displayName ?? member.userId }, trigger)}
+        onLeave={trigger => requestConfirmation({ kind: 'leave' }, trigger)} onConfirm={confirmMembershipChange} onCancel={cancelConfirmation} />
     </aside>}
   </div>
 }
