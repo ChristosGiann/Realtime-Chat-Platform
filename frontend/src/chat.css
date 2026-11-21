@@ -43,4 +43,3 @@
 .composer-footer button { margin: 0; }
 .composer-error, .composer-retry { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); background: var(--surface-status-danger); color: var(--status-danger); }
 .composer-retry { color: var(--text-primary); background: var(--surface-item); }
-@media (max-width: 700px) { .message-list .message-item { max-width: 90%; } }

@@ -66,6 +66,7 @@ test('validation errors appear next to registration fields', async ({ page }) =>
   await page.getByLabel('Κωδικός', { exact: true }).fill('Test-password123!')
   await page.getByRole('button', { name: 'Δημιουργία λογαριασμού', exact: true }).click()
   await expect(page.getByLabel('Email', { exact: true })).toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByLabel('Email', { exact: true })).toHaveAttribute('aria-describedby', 'email-error')
   await expect(page.getByText('Email already in use.')).toBeVisible()
 })
 test('session outage offers retry without showing protected content', async ({ page }) => {
@@ -85,4 +86,27 @@ test('failed logout preserves session and allows retry', async ({ page }) => {
   await page.getByRole('button', { name: 'Αποσύνδεση', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Δεν ήταν δυνατή')
   await expect(page.getByRole('heading', { name: 'Καλώς ήρθες, Alice' })).toBeVisible()
+})
+
+test('auth, profile and search forms stay labelled and usable at narrow widths', async ({ page }) => {
+  const state = await api(page)
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 568 })
+    state.loggedIn = false
+    await page.goto('/#/register')
+    await page.reload()
+    await expect(page.getByLabel('Email', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Κωδικός', { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.goto('/#/login')
+    await page.getByLabel('Email', { exact: true }).fill(user.email)
+    await page.getByLabel('Κωδικός', { exact: true }).fill('Test-password123!')
+    await page.getByRole('button', { name: 'Σύνδεση', exact: true }).click()
+    await page.goto('/#/profile')
+    await expect(page.getByLabel('Εμφανιζόμενο όνομα')).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.goto('/#/users')
+    await expect(page.getByLabel('Όνομα χρήστη ή εμφανιζόμενο όνομα')).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
 })

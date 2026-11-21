@@ -26,4 +26,3 @@ textarea { resize: vertical; min-height: 120px; }
 .conversation-actions { display: flex; gap: var(--space-4); flex-wrap: wrap; margin: var(--space-4) 0; }
 .conversation-layout .panel { min-width: 0; padding: var(--space-5); }
 .message-list { list-style: none; padding: 0; }
-@media (max-width: 700px) { .conversation-layout { grid-template-columns: minmax(0, 1fr); } }
