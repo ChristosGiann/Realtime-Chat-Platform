@@ -1,0 +1,81 @@
+/* Each conversation route is one mobile screen; desktop columns remain in shell.css. */
+.mobile-chat-back, .mobile-details-back, .mobile-create-back { display: none; }
+.nav-mobile-label { display: none; }
+.mobile-condense-short { display: none; }
+@media (max-width: 700px) {
+  .app-frame--conversation { height: 100vh; height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--surface-canvas); }
+  .app-frame--conversation .site-header { flex: none; display: grid; grid-template-columns: 1fr; gap: var(--space-2); padding: calc(var(--space-2) + env(safe-area-inset-top)) var(--space-4) var(--space-2); border-bottom: 1px solid var(--border-subtle); }
+  .app-frame--conversation .brand { font-size: 1.08rem; line-height: 1.2; }
+  .app-frame--conversation nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1); min-width: 0; }
+  .app-frame--conversation nav a, .app-frame--conversation nav button { min-width: 0; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; padding: var(--space-1); border-radius: var(--radius-control); font-size: .75rem; white-space: nowrap; }
+  .app-frame--conversation .nav-desktop-label { display: none; }
+  .app-frame--conversation .nav-mobile-label { display: inline; }
+  .mobile-condense-desktop { display: none; }
+  .mobile-condense-short { display: inline; }
+  .app-frame--conversation nav a[aria-current="page"] { background: var(--surface-selected); text-decoration: none; font-weight: 700; }
+  .app-main--conversation { flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; max-width: none; margin: 0; padding: 0; overflow: hidden; }
+  .conversation-page, .conversation-layout { height: 100%; min-height: 0; }
+  .conversation-layout { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+  .conversation-list, .conversation-workspace, .conversation-utility { height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+  .conversation-list { flex: 1 1 auto; }
+  .conversation-list-header { padding: var(--space-4); }
+  .conversation-list-header h2 { margin-bottom: var(--space-2); font-size: 1.25rem; }
+  .conversation-list-header .eyebrow { display: none; }
+  .conversation-list-actions { margin-bottom: var(--space-2); }
+  .conversation-list-actions a { min-height: 2.75rem; display: inline-flex; align-items: center; }
+  .conversation-list-scroll { flex: 1 1 auto; max-height: none; padding: var(--space-2) var(--space-3) calc(var(--space-4) + env(safe-area-inset-bottom)); }
+  .conversation-item a { min-height: 2.75rem; padding-top: var(--space-3); white-space: normal; overflow-wrap: anywhere; }
+  .conversation-items .conversation-item { background: var(--surface-panel); border: 1px solid var(--border-subtle); margin-bottom: var(--space-2); }
+  .conversation-page:not(.conversation-page--selected) .conversation-empty { display: none; }
+  .conversation-page--selected .conversation-list { display: none; }
+  .conversation-page--selected .conversation-content { flex: 1 1 auto; height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 0; }
+  .conversation-page:not(.conversation-page--details) .conversation-utility { display: none; }
+  .conversation-page--details .conversation-workspace { display: none; }
+  .conversation-page--details .conversation-utility { display: flex; }
+  .conversation-workspace { flex: 1 1 auto; }
+  .conversation-workspace-header { flex: none; flex-wrap: nowrap; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+  .conversation-workspace-header > div { flex: 1 1 auto; min-width: 0; }
+  .conversation-workspace-header h2 { font-size: 1rem; line-height: 1.2; max-height: 2.4em; overflow: hidden; }
+  .conversation-workspace-header .eyebrow { display: none; }
+  .conversation-workspace-header p { margin: 0; font-size: .72rem; }
+  .conversation-workspace-header button { flex: none; min-height: 2.75rem; max-width: 6.5rem; padding: var(--space-2); font-size: .78rem; }
+  .mobile-chat-back, .mobile-details-back, .mobile-create-back { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 2.75rem; min-height: 2.75rem; border-radius: var(--radius-control); background: var(--surface-item); color: var(--text-primary); text-decoration: none; font-size: 1.35rem; }
+  .mobile-chat-back:hover, .mobile-details-back:hover, .mobile-create-back:hover { background: var(--surface-hover); }
+  .messaging-panel { flex: 1 1 auto; min-height: 0; }
+  .messaging-toolbar { flex: none; flex-wrap: nowrap; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+  .messaging-toolbar h3 { display: none; }
+  .messaging-toolbar p { margin: 0; font-size: .72rem; }
+  .messaging-toolbar button { min-height: 2.75rem; padding: var(--space-2); font-size: .75rem; }
+  .messaging-progress { gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+  .messaging-progress p { font-size: .75rem; }
+  .message-history { flex: 1 1 auto; min-height: 0; max-height: none; padding: var(--space-3); scrollbar-gutter: auto; }
+  .message-list .message-item { min-width: 0; max-width: 90%; padding: var(--space-2) var(--space-3); }
+  .message-meta { flex-wrap: wrap; gap: var(--space-1) var(--space-2); }
+  .message-composer { flex: none; max-height: min(43dvh, 20rem); padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom)); }
+  .message-composer .composer-surface { padding: var(--space-2); }
+  .message-composer textarea { min-width: 0; max-height: 7rem; }
+  .composer-footer { min-width: 0; flex-wrap: wrap; }
+  .composer-footer button { min-width: 5.5rem; min-height: 2.75rem; margin-left: auto; }
+  .conversation-utility { flex: 1 1 auto; overflow: auto; padding: var(--space-3) var(--space-4) calc(var(--space-5) + env(safe-area-inset-bottom)); }
+  .conversation-utility-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); }
+  .conversation-utility-header .eyebrow, .conversation-utility-header .conversation-utility-close { display: none; }
+  .conversation-utility-header h2 { margin: 0; font-size: 1.08rem; }
+  .conversation-utility-header > button:last-child { grid-column: 1 / -1; min-height: 2.75rem; }
+  .member-remove, .details-secondary, .details-danger, .details-add .results button { min-height: 2.75rem; }
+  .member-identity a { min-height: 2.75rem; display: inline-flex; align-items: center; }
+  .conversation-content--create { flex: 1 1 auto; overflow: auto; padding: var(--space-3) var(--space-4) calc(var(--space-5) + env(safe-area-inset-bottom)); }
+  .conversation-content--create .panel { min-width: 0; padding: var(--space-4); }
+  .conversation-content--create .search-form .field { min-width: 0; flex-basis: 100%; }
+  .conversation-content--create .results li { overflow-wrap: anywhere; }
+  .mobile-create-back { width: fit-content; font-size: .85rem; gap: var(--space-2); padding: 0 var(--space-3); }
+}
+@media (max-width: 700px) and (max-height: 600px) {
+  .app-frame--conversation .site-header { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); padding-top: calc(var(--space-1) + env(safe-area-inset-top)); padding-bottom: var(--space-1); }
+  .app-frame--conversation .brand { font-size: .95rem; }
+  .app-frame--conversation nav a, .app-frame--conversation nav button { min-height: 2.5rem; font-size: .7rem; }
+  .conversation-workspace-header { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+  .messaging-toolbar { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+  .messaging-progress { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+  .message-composer { max-height: 40dvh; padding-top: var(--space-1); }
+  .message-composer .composer-surface textarea { min-height: 2.5rem; }
+}

@@ -18,7 +18,7 @@ test('edit profile sends only editable fields with CSRF and updates current user
   await page.getByLabel('Βιογραφικό').fill('')
   await page.getByRole('button', { name: 'Αποθήκευση', exact: true }).click()
   await expect(page.getByRole('status')).toHaveText('Το προφίλ αποθηκεύτηκε.')
-  await page.getByRole('link', { name: 'Realtime Chat', exact: true }).click()
+  await page.getByRole('link', { name: 'Apothiki', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Καλώς ήρθες, Updated' })).toBeVisible()
 })
 test('profile validation is attached to the relevant field', async ({ page }) => {
@@ -28,6 +28,7 @@ test('profile validation is attached to the relevant field', async ({ page }) =>
   await page.getByLabel('URL εικόνας προφίλ (HTTPS)').fill('http://example.test/avatar')
   await page.getByRole('button', { name: 'Αποθήκευση', exact: true }).click()
   await expect(page.getByLabel('URL εικόνας προφίλ (HTTPS)')).toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByLabel('URL εικόνας προφίλ (HTTPS)')).toHaveAttribute('aria-describedby', 'avatarUrl-error')
   await expect(page.getByText('HTTPS required.')).toBeVisible()
 })
 test('public profile remains public during session outage and renders text safely', async ({ page }) => {

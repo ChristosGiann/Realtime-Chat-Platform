@@ -20,7 +20,16 @@ function mergeMessages(items: HistoryMessage[]) {
   })
 }
 
-export function MessagingPanel({ id }: { id: string }) {
+function displayTime(value: string) {
+  const timestamp = new Date(value)
+  const now = new Date()
+  const sameDay = timestamp.getFullYear() === now.getFullYear() && timestamp.getMonth() === now.getMonth() && timestamp.getDate() === now.getDate()
+  return new Intl.DateTimeFormat('el-GR', sameDay ? { hour: '2-digit', minute: '2-digit' } : {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  }).format(timestamp)
+}
+
+export function MessagingPanel({ id, type }: { id: string; type: 'Direct' | 'Group' }) {
   const { user } = useAuth()
   const realtime = useRealtime()
   const [items, setItems] = useState<HistoryMessage[]>([])
@@ -45,6 +54,7 @@ export function MessagingPanel({ id }: { id: string }) {
   const mutation = useRef(false)
   const liveStop = useRef<(() => void) | undefined>(undefined)
   const busy = loading || sending || reading
+  const timeline = [...items].reverse()
   function fail(cause: unknown) {
     setError(messagingError(cause))
     if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) {
@@ -166,34 +176,43 @@ export function MessagingPanel({ id }: { id: string }) {
     catch (cause) { if (alive.current) fail(cause) }
     finally { mutation.current = false; if (alive.current) setReading(false) }
   }
-  return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><h3>Μηνύματα</h3>
-    {!unavailable && <p aria-label="Παρουσία συνομιλίας">{presence === null ? 'Παρουσία: άγνωστη / επανασύνδεση' : `${presence.filter(x => x.userId !== user?.id && x.isOnline).length} online · ${presence.filter(x => x.userId !== user?.id && !x.isOnline).length} offline (άλλα μέλη)`}</p>}
-    <p role="status" aria-label="Κατάσταση live σύνδεσης">{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p>
-    <button disabled={busy} onClick={() => void load()}>Ανανέωση μηνυμάτων</button>
-    {loading && <p role="status">Φόρτωση μηνυμάτων…</p>}
-    {error && <p role="alert">{error}</p>}
-    {read && <p aria-live="polite">Μη αναγνωσμένα: {read.unreadCount}</p>}
-    {readTarget && !unavailable && <><button disabled={busy || !receipts} onClick={() => void markRead()}>Σήμανση ιστορικού ως αναγνωσμένου</button>
-      <p className="hint">Περιλαμβάνει όλα τα μηνύματα έως το νεότερο που φορτώθηκε από το ιστορικό.</p></>}
-    {reading && <p role="status">Αποθήκευση ανάγνωσης…</p>}
+  return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><div className="messaging-toolbar"><div><h3>Μηνύματα</h3>
+    {!unavailable && <p className="presence-state" data-presence={presence === null ? 'unknown' : presence.some(x => x.userId !== user?.id && x.isOnline) ? 'online' : 'offline'} aria-label="Παρουσία συνομιλίας">{presence === null ? 'Παρουσία: άγνωστη / επανασύνδεση' : `${presence.filter(x => x.userId !== user?.id && x.isOnline).length} online · ${presence.filter(x => x.userId !== user?.id && !x.isOnline).length} offline (άλλα μέλη)`}</p>}
+    <p role="status" aria-label="Κατάσταση live σύνδεσης" data-live-status={live}>{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p></div>
+    <button disabled={busy} aria-label="Ανανέωση μηνυμάτων" onClick={() => void load()}><span className="mobile-condense-desktop">Ανανέωση μηνυμάτων</span><span className="mobile-condense-short" aria-hidden="true">Ανανέωση</span></button></div>
+    <div className="messaging-progress">
+    {read && <p className="unread-state" data-has-unread={read.unreadCount > 0} aria-live="polite">Μη αναγνωσμένα: {read.unreadCount}</p>}
+    {readTarget && !unavailable && <><button disabled={busy || !receipts} aria-label="Σήμανση ιστορικού ως αναγνωσμένου" onClick={() => void markRead()}><span className="mobile-condense-desktop">Σήμανση ιστορικού ως αναγνωσμένου</span><span className="mobile-condense-short" aria-hidden="true">Ανάγνωση</span></button>
+      <p className="hint visually-hidden">Έως το νεότερο μήνυμα που φορτώθηκε.</p></>}
+    {reading && <p role="status">Αποθήκευση ανάγνωσης…</p>}</div>
+    <div className="message-history">
+    {loading && <p className="history-notice" role="status">Φόρτωση μηνυμάτων…</p>}
+    {error && <p className={unavailable ? 'history-notice history-notice--access' : 'history-notice history-notice--error'} role="alert">{error}</p>}
     {next && !unavailable && <button disabled={busy} onClick={() => void load(true)}>Παλαιότερα μηνύματα</button>}
-    {!loading && !error && items.length === 0 && <p>Δεν υπάρχουν ακόμη μηνύματα.</p>}
-    <ol className="message-list" aria-label="Ιστορικό μηνυμάτων">{[...items].reverse().map(item => <li key={item.id} data-message-id={item.id}>
-      <strong>{item.sender.displayName ?? 'Χρήστης'}</strong> <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString('el-GR')}</time>
+    {!loading && !error && items.length === 0 && <div className="message-empty"><h4>Εδώ ξεκινά η συζήτηση</h4><p>Δεν υπάρχουν ακόμη μηνύματα.</p><p>Γράψε το πρώτο μήνυμα παρακάτω.</p></div>}
+    <ol className="message-list" aria-label="Ιστορικό μηνυμάτων">{timeline.map((item, index) => {
+      const own = item.senderId === user?.id
+      const previous = timeline[index - 1]
+      const grouped = previous?.senderId === item.senderId && new Date(item.createdAt).getTime() - new Date(previous.createdAt).getTime() <= 5 * 60_000
+        && new Date(item.createdAt).getTime() >= new Date(previous.createdAt).getTime()
+      const receipt = own ? receiptLabel(receipts, user!.id, item) : null
+      return <li key={item.id} data-message-id={item.id} className={`message-item ${own ? 'message-item--outgoing' : 'message-item--incoming'}${grouped ? ' message-item--grouped' : ''}`}>
+      <div className="message-meta"><strong className={own || type === 'Direct' || grouped ? 'visually-hidden' : undefined}>{item.sender.displayName ?? 'Χρήστης'}</strong>
+        <time dateTime={item.createdAt}>{displayTime(item.createdAt)}</time></div>
       <p className="message-body">{item.body}</p>
-      {item.senderId === user?.id && <p aria-label="Κατάσταση μηνύματος">{receiptLabel(receipts, user.id, item)}</p>}
-    </li>)}</ol>
-    {typingUsers.some(id => receipts?.items.some(member => member.userId === id)) && !unavailable && <p role="status" aria-label="Πληκτρολόγηση">{typingUsers.filter(id => receipts?.items.some(member => member.userId === id)).length === 1 ? 'Ένας χρήστης πληκτρολογεί…' : `${typingUsers.filter(id => receipts?.items.some(member => member.userId === id)).length} χρήστες πληκτρολογούν…`}</p>}
-    {!unavailable && <form onSubmit={send}><div className="field"><label htmlFor={`message-${id}`}>Νέο μήνυμα</label>
-      <textarea id={`message-${id}`} value={body} maxLength={4000} disabled={busy || pending !== null}
+      {receipt && <p className="message-receipt" data-receipt-state={(receipts?.conversationType ?? type) === 'Direct' ? receipt.split(' · ')[0] : 'Group'} aria-label="Κατάσταση μηνύματος">{receipt}</p>}
+    </li>})}</ol></div>
+    <div className="message-composer">
+    <div className="typing-slot">{typingUsers.some(id => receipts?.items.some(member => member.userId === id)) && !unavailable && <p role="status" aria-label="Πληκτρολόγηση">{typingUsers.filter(id => receipts?.items.some(member => member.userId === id)).length === 1 ? 'Ένας χρήστης πληκτρολογεί…' : `${typingUsers.filter(id => receipts?.items.some(member => member.userId === id)).length} χρήστες πληκτρολογούν…`}</p>}</div>
+    {!unavailable && <form onSubmit={send}><div className="field composer-surface"><label htmlFor={`message-${id}`}>Νέο μήνυμα</label>
+      <textarea id={`message-${id}`} value={body} maxLength={4000} disabled={busy || pending !== null} aria-invalid={!!sendError}
         onBlur={() => realtime?.typing(id, false)}
         onChange={event => { setBody(event.target.value); setSendError(''); realtime?.typing(id, event.target.value.trim().length > 0) }} />
-      <p>{body.length}/4000</p></div>
-      {sendError && <p role="alert">{sendError}</p>}
-      {pending && !sending && <p>Η αποστολή δεν επιβεβαιώθηκε. Επανάλαβε το ίδιο μήνυμα με ασφάλεια πριν γράψεις άλλο.</p>}
+      <div className="composer-footer"><p>{body.length}/4000</p><button disabled={busy} type="submit">{pending && !sending ? 'Επανάληψη αποστολής' : 'Αποστολή'}</button></div></div>
+      {sendError && <p className="composer-error" role="alert">{sendError}</p>}
+      {pending && !sending && <p className="composer-retry">Η αποστολή δεν επιβεβαιώθηκε. Επανάλαβε το ίδιο μήνυμα με ασφάλεια πριν γράψεις άλλο.</p>}
       {sending && <p role="status">Αποστολή μηνύματος…</p>}
-      <button disabled={busy} type="submit">{pending && !sending ? 'Επανάληψη αποστολής' : 'Αποστολή'}</button>
-    </form>}
+    </form>}</div>
   </section>
 }
 

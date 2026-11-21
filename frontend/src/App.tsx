@@ -10,9 +10,14 @@ import { UserSearchPage } from './profiles/UserSearchPage'
 import { ConversationsPage } from './conversations/ConversationsPage'
 import { RealtimeProvider } from './messages/RealtimeProvider'
 import './App.css'
+import './shell.css'
+import './chat.css'
+import './details.css'
+import './mobile.css'
 function Screen() {
   const auth = useAuth()
   const route = useRoute()
+  const isConversation = !!auth.user && (route === '/conversations' || route.startsWith('/conversations/'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -25,14 +30,14 @@ function Screen() {
     catch (cause) { setError(errorMessage(cause)) }
     finally { setBusy(false) }
   }
-  return <>
-    <header className="site-header"><a className="brand" href="#/app">Realtime Chat</a>
+  return <div className={isConversation ? 'app-frame app-frame--conversation' : 'app-frame'}>
+    <header className="site-header"><a className="brand" href="#/app">Apothiki</a>
       <nav aria-label="Κύρια πλοήγηση">
-        {auth.user ? <><a href="#/conversations">Συνομιλίες</a><a href="#/profile">Το προφίλ μου</a><a href="#/users">Αναζήτηση</a><button onClick={logout} disabled={busy}>{busy ? 'Αποσύνδεση…' : 'Αποσύνδεση'}</button></>
+        {auth.user ? <><a href="#/conversations" aria-current={isConversation ? 'page' : undefined}>Συνομιλίες</a><a href="#/profile" aria-label="Το προφίλ μου" aria-current={route === '/profile' ? 'page' : undefined}><span className="nav-desktop-label">Το προφίλ μου</span><span className="nav-mobile-label" aria-hidden="true">Προφίλ</span></a><a href="#/users" aria-label="Αναζήτηση" aria-current={route === '/users' ? 'page' : undefined}><span className="nav-desktop-label">Αναζήτηση</span><span className="nav-mobile-label" aria-hidden="true">Άτομα</span></a><button onClick={logout} aria-label={busy ? 'Αποσύνδεση…' : 'Αποσύνδεση'} disabled={busy}><span className="nav-desktop-label">{busy ? 'Αποσύνδεση…' : 'Αποσύνδεση'}</span><span className="nav-mobile-label" aria-hidden="true">{busy ? 'Έξοδος…' : 'Έξοδος'}</span></button></>
           : <><a href="#/login">Σύνδεση</a><a href="#/register">Εγγραφή</a></>}
       </nav>
     </header>
-    <main>
+    <main className={isConversation ? 'app-main app-main--conversation' : 'app-main'}>
       {error && <p role="alert" className="error">{error}</p>}
       {route.startsWith('/profiles/') ? <PublicProfilePage key={route} id={route.slice('/profiles/'.length)} />
         : auth.status === 'loading' ? <p role="status">Έλεγχος συνεδρίας…</p>
@@ -41,12 +46,12 @@ function Screen() {
         : !auth.user ? <AuthForm key={route === '/register' ? 'register' : 'login'} register={route === '/register'} />
         : route === '/profile' ? <EditProfilePage key={auth.user.id} />
         : route === '/users' ? <UserSearchPage key={auth.user.id} />
-        : route === '/conversations' || route.startsWith('/conversations/') ? <ConversationsPage key={auth.user.id} selectedId={route.split('/')[2]} />
+        : route === '/conversations' || route.startsWith('/conversations/') ? <ConversationsPage key={auth.user.id} selectedId={route.split('/')[2]} detailsRoute={route.split('/')[3] === 'details'} />
         : ['/app', '/', '/login', '/register'].includes(route)
           ? <section className="panel"><p className="eyebrow">Ο λογαριασμός σου</p><h1>Καλώς ήρθες, {auth.user.displayName ?? auth.user.userName}</h1>
             <p>Η σύνδεσή σου είναι ενεργή.</p><p>{auth.user.email}</p></section>
           : <section className="panel"><h1>Η σελίδα δεν βρέθηκε</h1><a href="#/app">Επιστροφή στον λογαριασμό</a></section>}
     </main>
-  </>
+  </div>
 }
 export default function App() { return <AuthProvider><RealtimeProvider><Screen /></RealtimeProvider></AuthProvider> }

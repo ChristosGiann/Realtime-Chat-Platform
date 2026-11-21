@@ -1,0 +1,45 @@
+/* Message presentation is visual only; durable ordering, receipt and send semantics live in MessagingPanel. */
+.messaging-toolbar .presence-state { display: flex; align-items: center; gap: var(--space-2); }
+.presence-state::before, .messaging-toolbar [data-live-status]::before { content: ''; display: inline-block; width: .45rem; height: .45rem; flex: none; border-radius: 50%; background: var(--text-secondary); }
+.presence-state[data-presence="online"]::before, .messaging-toolbar [data-live-status="connected"]::before { background: var(--status-online); }
+.presence-state[data-presence="unknown"]::before, .messaging-toolbar [data-live-status="connecting"]::before, .messaging-toolbar [data-live-status="reconnecting"]::before { background: var(--status-warning); }
+.messaging-toolbar [data-live-status] { display: flex; align-items: center; gap: var(--space-2); }
+.messaging-toolbar [data-live-status="disconnected"] { color: var(--status-danger); }
+.messaging-toolbar button, .messaging-progress button, .message-history > button { background: transparent; border-color: var(--border-control); color: var(--text-primary); }
+.messaging-toolbar button:hover:not(:disabled), .messaging-progress button:hover:not(:disabled), .message-history > button:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-accent); }
+.messaging-progress { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.messaging-progress .unread-state { margin: 0; padding: var(--space-1) var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-control); color: var(--text-secondary); white-space: nowrap; }
+.messaging-progress .unread-state[data-has-unread="true"] { color: var(--text-primary); background: var(--surface-selected); border-color: var(--border-accent); font-weight: 650; }
+.messaging-progress .hint { margin: 0; }
+.history-notice { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-item); background: var(--surface-item); }
+.history-notice--error, .history-notice--access { color: var(--status-danger); background: var(--surface-status-danger); }
+.message-empty { max-width: 24rem; margin: min(12vh, var(--space-10)) auto; padding: var(--space-8) var(--space-5); text-align: center; border: 1px dashed var(--border-control); border-radius: var(--radius-panel); color: var(--text-secondary); }
+.message-empty h4 { margin: 0 0 var(--space-3); color: var(--text-primary); font-size: 1.1rem; }
+.message-empty p { margin: var(--space-2) 0; }
+.message-list { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-3); }
+.message-list .message-item { align-self: flex-start; width: fit-content; min-width: 7rem; max-width: min(80%, 38rem); margin: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-item); background: var(--surface-message-incoming); overflow-wrap: anywhere; }
+.message-list .message-item--outgoing { align-self: flex-end; background: var(--surface-message-own); border-color: var(--border-message-own); }
+.message-list .message-item--grouped { margin-top: calc(-1 * var(--space-2)); }
+.message-meta { display: flex; align-items: baseline; gap: var(--space-3); font-size: .75rem; }
+.message-meta strong { color: var(--text-link); font-weight: 700; }
+.message-meta time { color: var(--text-secondary); }
+.message-item--outgoing .message-meta { justify-content: flex-end; }
+.message-body { margin: var(--space-2) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.message-receipt { margin: var(--space-2) 0 0; color: var(--text-receipt); font-size: .75rem; text-align: right; }
+.message-receipt[data-receipt-state="Read"] { color: var(--status-success); }
+.message-receipt[data-receipt-state="Sent"] { color: var(--text-secondary); }
+.message-composer { background: var(--surface-header); }
+.typing-slot { min-height: var(--space-6); color: var(--text-secondary); font-size: .82rem; }
+.typing-slot p { margin: 0; }
+.typing-slot p::before { content: '•••'; letter-spacing: .12em; margin-right: var(--space-2); color: var(--text-link); }
+.message-composer .composer-surface { gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-control); border-radius: var(--radius-panel); background: var(--surface-composer); }
+.message-composer .composer-surface:focus-within { border-color: var(--border-accent); }
+.message-composer .composer-surface:has([aria-invalid="true"]) { border-color: var(--status-danger); }
+.message-composer .composer-surface label { font-size: .82rem; color: var(--text-secondary); }
+.message-composer .composer-surface textarea { field-sizing: content; min-height: 3rem; max-height: 10rem; padding: 0; border: 0; border-radius: 0; background: transparent; resize: none; line-height: var(--line-body); }
+.message-composer .composer-surface textarea:focus-visible { outline-offset: var(--space-2); }
+.composer-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.composer-footer p { margin: 0; color: var(--text-secondary); font-size: .75rem; }
+.composer-footer button { margin: 0; }
+.composer-error, .composer-retry { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); background: var(--surface-status-danger); color: var(--status-danger); }
+.composer-retry { color: var(--text-primary); background: var(--surface-item); }

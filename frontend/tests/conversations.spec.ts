@@ -56,6 +56,8 @@ test('direct creation sends selected target with CSRF and opens safe details', a
   await page.goto('/#/conversations/new'); await find(page, 'Bob')
   await expect(page.getByRole('heading', { name: 'Direct συνομιλία' })).toBeVisible()
   await expect(page.getByRole('link', { name: '<script>Bob</script>', exact: true })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Στοιχεία συνομιλίας' }).getByText('Προσωπική συνομιλία', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Αφαίρεση <script>Bob</script>' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Αποχώρηση από ομάδα' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Προσθήκη μέλους' })).toHaveCount(0)
 })
@@ -83,30 +85,71 @@ test('owner can add and remove members while owner actions remain protected', as
   await session(page); await list(page, [summary]); await search(page, [profile(carol, 'Carol')])
   let members = [member(owner, 'Alice', 'Owner'), member(bob, 'Bob')]
   await page.route(`**/api/conversations/${group}?*`, route => route.fulfill({ json: { ...summary, memberCount: members.length, members, nextOffset: null } }))
+  let removals = 0
   await page.route(`**/api/conversations/${group}/members/*`, route => {
     expect(route.request().headers()['x-csrf-token']).toBe('conversation-token')
     if (route.request().method() === 'PUT') members.push(member(carol, 'Carol'))
-    else members = members.filter(x => x.userId !== bob)
+    else { removals++; members = members.filter(x => x.userId !== bob) }
     return route.fulfill({ status: 204 })
   })
   await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Ο ρόλος σου: Ιδιοκτήτης')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Αφαίρεση Alice', exact: true })).toHaveCount(0)
   await find(page, 'Carol')
   await expect(page.getByRole('link', { name: 'Carol', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true }).click()
+  await expect(page.getByRole('group', { name: 'Επιβεβαίωση αφαίρεσης Bob' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Επιβεβαίωση αφαίρεσης' })).toBeFocused()
+  expect(removals).toBe(0)
+  await page.getByRole('button', { name: 'Ακύρωση' }).click()
+  await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toBeFocused()
+  expect(removals).toBe(0)
+  await expect(page.getByRole('link', { name: 'Bob', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true }).click()
+  await page.getByRole('button', { name: 'Επιβεβαίωση αφαίρεσης' }).click()
   await expect(page.getByRole('link', { name: 'Bob', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('complementary', { name: 'Στοιχεία συνομιλίας' })).toBeFocused()
+  expect(removals).toBe(1)
   await expect(page.getByRole('button', { name: 'Αποχώρηση από ομάδα' })).toHaveCount(0)
 })
 
 test('member can leave and list is refreshed', async ({ page }) => {
   await session(page); await list(page, [summary])
   await page.route(`**/api/conversations/${group}?*`, route => route.fulfill({ json: { ...summary, myRole: 'Member', members: [member(owner, 'Alice')], nextOffset: null } }))
-  await page.route(`**/api/conversations/${group}/membership`, async route => { await list(page); await route.fulfill({ status: 204 }) })
+  let leaves = 0
+  await page.route(`**/api/conversations/${group}/membership`, async route => { leaves++; await list(page); await route.fulfill({ status: 204 }) })
   await page.goto(`/#/conversations/${group}`)
+  await expect(page.getByLabel('Ο ρόλος σου: Μέλος')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Προσθήκη μέλους' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Αποχώρηση από ομάδα' }).click()
+  await expect(page.getByRole('group', { name: 'Επιβεβαίωση αποχώρησης' })).toBeVisible()
+  expect(leaves).toBe(0)
+  await page.getByRole('button', { name: 'Ακύρωση' }).click()
+  await expect(page.getByRole('button', { name: 'Αποχώρηση από ομάδα' })).toBeFocused()
+  await page.getByRole('button', { name: 'Αποχώρηση από ομάδα' }).click()
+  await page.getByRole('button', { name: 'Επιβεβαίωση αποχώρησης' }).click()
+  await expect.poll(() => leaves).toBe(1)
   await expect(page.getByText('Δεν έχεις ακόμη συνομιλίες.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Επίλεξε συνομιλία' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Λίστα συνομιλιών' })).toBeFocused()
+})
+
+test('membership refresh clears stale confirmation, unlocks actions and never removes a missing member', async ({ page }) => {
+  await session(page); await list(page, [summary])
+  let members = [member(owner, 'Alice', 'Owner'), member(bob, 'Bob')]
+  let removals = 0
+  await page.route(`**/api/conversations/${group}?*`, route => route.fulfill({ json: { ...summary, memberCount: members.length, members, nextOffset: null } }))
+  await page.route(`**/api/conversations/${group}/members/${bob}`, route => { removals++; return route.fulfill({ status: 204 }) })
+  await page.goto(`/#/conversations/${group}`)
+  await page.getByRole('button', { name: 'Αφαίρεση Bob' }).click()
+  await expect(page.getByRole('button', { name: 'Επιβεβαίωση αφαίρεσης' })).toBeFocused()
+  members = [member(owner, 'Alice', 'Owner')]
+  await page.evaluate(() => window.dispatchEvent(new Event('conversation-resynced')))
+  await expect(page.getByRole('group', { name: 'Επιβεβαίωση αφαίρεσης Bob' })).toHaveCount(0)
+  await expect(page.getByRole('complementary', { name: 'Στοιχεία συνομιλίας' })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Αναζήτηση ατόμων' })).toBeEnabled()
+  await page.keyboard.press('Enter')
+  expect(removals).toBe(0)
 })
 
 test('membership refresh cannot enable another mutation before the pending response completes', async ({ page }) => {
@@ -132,13 +175,14 @@ test('list and member pages append, fit mobile and missing profile uses ID', asy
   await page.route('**/api/conversations?*', route => route.fulfill({ json: new URL(route.request().url()).searchParams.get('offset') === '0'
     ? { items: [summary], nextOffset: 20 } : { items: [{ ...summary, id: bob, name: 'Δεύτερη' }], nextOffset: null } }))
   await page.route(`**/api/conversations/${group}?*`, route => route.fulfill({ json: { ...summary,
-    members: new URL(route.request().url()).searchParams.get('offset') === '0' ? [member(owner, 'Alice', 'Owner')] : [{ ...member(bob, 'Bob'), profile: null }],
+    members: new URL(route.request().url()).searchParams.get('offset') === '0' ? [member(owner, 'Alice', 'Owner')] : [member(owner, 'Alice', 'Owner'), { ...member(bob, 'Bob'), profile: null }],
     nextOffset: new URL(route.request().url()).searchParams.get('offset') === '0' ? 20 : null } }))
   await page.goto(`/#/conversations/${group}`)
   await page.getByRole('button', { name: 'Περισσότερες συνομιλίες' }).click()
   await expect(page.getByRole('link', { name: 'Δεύτερη', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Περισσότερα μέλη' }).click()
   await expect(page.getByRole('link', { name: bob, exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Alice', exact: true })).toHaveCount(1)
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('conversations-mobile.png'), fullPage: true })
@@ -168,8 +212,12 @@ for (const status of [403, 409]) {
     await page.route(`**/api/conversations/${group}/members/${bob}`, route => route.fulfill({ status, json: {} }))
     await page.goto(`/#/conversations/${group}`)
     await page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true }).click()
+    await page.getByRole('button', { name: 'Επιβεβαίωση αφαίρεσης' }).click()
     await expect(page.getByRole('alert')).toContainText(status === 403 ? 'Δεν έχεις δικαίωμα' : 'δεν επιτρέπεται')
     if (status === 403) await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toHaveCount(0)
-    else await expect(page.getByRole('link', { name: 'Bob', exact: true })).toBeVisible()
+    else {
+      await expect(page.getByRole('link', { name: 'Bob', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Αφαίρεση Bob', exact: true })).toBeFocused()
+    }
   })
 }
