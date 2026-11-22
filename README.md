@@ -24,6 +24,7 @@ These screenshots use fictional demo accounts and messages from a [repeatable Pl
 - Reconnect and REST resynchronization after missed realtime events, including messages and receipts.
 - Redis-backed coordination across API processes, including cross-instance membership revocation and protection against stale subscriptions after rejoin.
 - Desktop conversation workspace and a one-screen-at-a-time mobile flow, with keyboard, focus and reduced-motion support.
+- Optional, on-demand summaries of unread **group** messages through a locally configured Ollama model. Viewing a summary never marks messages as read.
 
 ## Architecture and consistency
 
@@ -66,6 +67,8 @@ npm --prefix frontend run dev -- --host localhost --port 5173
 
 Open `http://localhost:5173`; the frontend defaults to `http://localhost:5080` for the API. Set `VITE_API_BASE_URL` in `frontend/.env.local` if the API origin differs. The single-instance development setup leaves Redis disabled. For a Redis-backed multi-instance topology, start `docker compose up -d postgres redis` and follow the [Redis configuration](docs/redis-infrastructure.md) and [Stage 6 handoff](docs/stage6-production-handoff.md); the Compose Redis service is for local development, not a production deployment.
 
+AI summaries are disabled by default. Normal chat does not require Ollama or a downloaded model. To enable them locally, install and start Ollama separately, pull a model yourself (for example `ollama pull qwen3:4b`), and set `UnreadSummaries__Enabled=true` and `UnreadSummaries__Model=qwen3:4b` in the **backend** terminal before running the API. The default `UnreadSummaries__BaseUrl` is `http://localhost:11434`. See [AI unread summaries](docs/ai-unread-summaries.md) for limits and privacy behavior.
+
 ## Verification
 
 GitHub Actions [CI](.github/workflows/ci.yml) builds the backend in Release, runs backend tests, lints/builds the frontend, runs Playwright UI tests, and runs real browser/API/PostgreSQL E2E tests. Stage 6 E2E also uses Redis and **two separate API processes** to exercise cross-instance messaging, receipts, revocation, and restart recovery. CI verifies changes; it does not deploy the app.
@@ -97,8 +100,8 @@ Redis or network interruption can lose live events while committed messages and 
 | [`tests/`](tests/) | Backend tests, including PostgreSQL/Redis integration coverage |
 | [`docs/`](docs/) | Design decisions, verification and operational notes |
 
-Start with the [Apothiki design system](docs/apothiki-design-system.md), [Stage 5 semantics](docs/stage5-semantics.md), [reconnect/REST recovery](docs/signalr-reconnect.md), and [Stage 6 production handoff](docs/stage6-production-handoff.md).
+Start with the [Apothiki design system](docs/apothiki-design-system.md), [Stage 5 semantics](docs/stage5-semantics.md), [reconnect/REST recovery](docs/signalr-reconnect.md), [AI unread summaries](docs/ai-unread-summaries.md), and [Stage 6 production handoff](docs/stage6-production-handoff.md).
 
 ## Roadmap
 
-[AI summaries of unread group messages (#88)](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/88) are planned and deferred; they are **not implemented**. Public deployment is also future work. Android and push-notification work is tracked separately in the [#124–#130 roadmap](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/124).
+Public deployment is future work. Android and push-notification work is tracked separately in the [#124–#130 roadmap](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/124).
