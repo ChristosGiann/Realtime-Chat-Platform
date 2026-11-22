@@ -1,4 +1,5 @@
 using Chat.Api.Infrastructure;
+using Chat.Api.AiSummaries;
 using Chat.Api.Infrastructure.Redis;
 using Chat.Api.Authorization;
 using Chat.Api.Conversations;
@@ -16,6 +17,8 @@ builder.Services.AddRedisInfrastructure();
 builder.Services.AddSharedDataProtection();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
+builder.Services.Configure<UnreadSummaryOptions>(builder.Configuration.GetSection("UnreadSummaries"));
+builder.Services.AddHttpClient<IUnreadSummaryGenerator, OllamaUnreadSummaryGenerator>();
 var signalR = builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = false;

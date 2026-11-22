@@ -10,6 +10,8 @@ import type { PresenceMember } from './RealtimeSession'
 import { covers, receiptsApi } from '../api/receipts'
 import type { ReceiptSnapshot } from '../api/receipts'
 import { ReceiptSession } from './ReceiptSession'
+import { unreadSummaryApi } from '../api/unreadSummary'
+import type { UnreadSummary } from '../api/unreadSummary'
 
 // Preserve PostgreSQL microseconds; JavaScript Date would truncate timestamp ties to milliseconds.
 const timeKey = (value: string) => value.slice(0, 19) + (value.includes('.') ? value.split('.')[1].replace('Z', '') : '').padEnd(7, '0')
@@ -48,6 +50,10 @@ export function MessagingPanel({ id, type }: { id: string; type: 'Direct' | 'Gro
   const [typingUsers, setTypingUsers] = useState<string[]>([])
   const [receipts, setReceipts] = useState<ReceiptSnapshot | null>(null)
   const [presence, setPresence] = useState<PresenceMember[] | null>(null)
+  const [summary, setSummary] = useState<UnreadSummary | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
+  const summaryRequest = useRef<AbortController | null>(null)
   const receiptSession = useRef<ReceiptSession | null>(null)
   const active = useRef<AbortController | null>(null)
   const alive = useRef(false)
@@ -60,6 +66,7 @@ export function MessagingPanel({ id, type }: { id: string; type: 'Direct' | 'Gro
     if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) {
       liveStop.current?.()
       setUnavailable(true); setItems([]); setRead(null); setReadTarget(null); setNext(null)
+      setSummary(null); setSummaryError('')
       receiptSession.current?.stop(); setReceipts(null); setPresence(null); setTypingUsers([])
       window.dispatchEvent(new Event('conversation-resynced'))
     }
@@ -135,7 +142,7 @@ export function MessagingPanel({ id, type }: { id: string; type: 'Direct' | 'Gro
         }
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => { alive.current = false; controller.abort(); active.current?.abort(); if (presenceExpiry) clearTimeout(presenceExpiry); progress.stop(); stop?.() }
+    return () => { alive.current = false; controller.abort(); active.current?.abort(); summaryRequest.current?.abort(); if (presenceExpiry) clearTimeout(presenceExpiry); progress.stop(); stop?.() }
   }, [id, realtime, user?.id, user?.displayName, user?.userName])
   async function load(older = false) {
     if (mutation.current) return
@@ -176,6 +183,26 @@ export function MessagingPanel({ id, type }: { id: string; type: 'Direct' | 'Gro
     catch (cause) { if (alive.current) fail(cause) }
     finally { mutation.current = false; if (alive.current) setReading(false) }
   }
+  async function generateSummary() {
+    if (summaryLoading || unavailable || type !== 'Group' || !read || read.unreadCount <= 0) return
+    summaryRequest.current?.abort()
+    const controller = new AbortController(); summaryRequest.current = controller
+    setSummaryLoading(true); setSummaryError('')
+    try {
+      const result = await unreadSummaryApi.create(id, controller.signal)
+      if (!controller.signal.aborted) {
+        if (result) setSummary(result)
+        else { setSummary(null); setSummaryError('Δεν υπάρχουν πλέον μη αναγνωσμένα μηνύματα για περίληψη.') }
+      }
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) fail(cause)
+        else setSummaryError(cause instanceof ApiError && cause.status === 422
+          ? 'Υπάρχουν περισσότερα μη αναγνωσμένα μηνύματα από το όριο περίληψης.'
+          : 'Η περίληψη δεν είναι διαθέσιμη τώρα. Το chat συνεχίζει κανονικά· δοκίμασε ξανά.')
+      }
+    } finally { if (!controller.signal.aborted) setSummaryLoading(false) }
+  }
   return <section className="messaging-panel" aria-label="Μηνύματα συνομιλίας"><div className="messaging-toolbar"><div><h3>Μηνύματα</h3>
     {!unavailable && <p className="presence-state" data-presence={presence === null ? 'unknown' : presence.some(x => x.userId !== user?.id && x.isOnline) ? 'online' : 'offline'} aria-label="Παρουσία συνομιλίας">{presence === null ? 'Παρουσία: άγνωστη / επανασύνδεση' : `${presence.filter(x => x.userId !== user?.id && x.isOnline).length} online · ${presence.filter(x => x.userId !== user?.id && !x.isOnline).length} offline (άλλα μέλη)`}</p>}
     <p role="status" aria-label="Κατάσταση live σύνδεσης" data-live-status={live}>{live === 'connected' ? 'Ζωντανή σύνδεση' : live === 'connecting' ? 'Σύνδεση ζωντανών μηνυμάτων…' : live === 'reconnecting' ? 'Επανασύνδεση…' : 'Χωρίς ζωντανή σύνδεση — μπορείς να ανανεώσεις τα μηνύματα.'}</p></div>
@@ -186,6 +213,21 @@ export function MessagingPanel({ id, type }: { id: string; type: 'Direct' | 'Gro
       <p className="hint visually-hidden">Έως το νεότερο μήνυμα που φορτώθηκε.</p></>}
     {reading && <p role="status">Αποθήκευση ανάγνωσης…</p>}</div>
     <div className="message-history">
+    {type === 'Group' && read && read.unreadCount > 0 && !unavailable &&
+      <button className="unread-summary-action" type="button" disabled={summaryLoading} onClick={() => void generateSummary()}>✨ Περίληψη όσων έχασες</button>}
+    {(summaryLoading || summaryError || summary) && <section className="unread-summary" aria-label="Περίληψη μη αναγνωσμένων">
+      <h4>Τι έχασες</h4>
+      {summaryLoading && <p role="status">Δημιουργία περίληψης…</p>}
+      {summaryError && <p role="alert">{summaryError}</p>}
+      {summary && <><p>{summary.overview}</p>
+        {summary.keyPoints.length > 0 && <><h5>Βασικά σημεία</h5><ul>{summary.keyPoints.map((point, index) => <li key={index}>{point}</li>)}</ul></>}
+        {summary.actionItems.length > 0 && <><h5>Ενέργειες</h5><ul>{summary.actionItems.map((point, index) => <li key={index}>{point}</li>)}</ul></>}
+        {summary.unresolvedQuestions.length > 0 && <><h5>Ανοιχτά ερωτήματα</h5><ul>{summary.unresolvedQuestions.map((point, index) => <li key={index}>{point}</li>)}</ul></>}
+        <p className="summary-boundary">Περίληψη {summary.unreadMessagesSummarized} μη αναγνωσμένων μηνυμάτων · έως {displayTime(summary.throughCreatedAt)} · όριο {summary.throughMessageId}</p>
+        {read?.lastReadMessageId === summary.fromReadMessageId && read.unreadCount > summary.unreadMessagesSummarized &&
+          <p role="status">+{read.unreadCount - summary.unreadMessagesSummarized} νεότερα μηνύματα</p>}
+      </>}
+    </section>}
     {loading && <p className="history-notice" role="status">Φόρτωση μηνυμάτων…</p>}
     {error && <p className={unavailable ? 'history-notice history-notice--access' : 'history-notice history-notice--error'} role="alert">{error}</p>}
     {next && !unavailable && <button disabled={busy} onClick={() => void load(true)}>Παλαιότερα μηνύματα</button>}

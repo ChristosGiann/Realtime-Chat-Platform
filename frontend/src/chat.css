@@ -11,6 +11,14 @@
 .messaging-progress .unread-state { margin: 0; padding: var(--space-1) var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-control); color: var(--text-secondary); white-space: nowrap; }
 .messaging-progress .unread-state[data-has-unread="true"] { color: var(--text-primary); background: var(--surface-selected); border-color: var(--border-accent); font-weight: 650; }
 .messaging-progress .hint { margin: 0; }
+.unread-summary-action { margin-bottom: var(--space-3); }
+.unread-summary { max-width: 42rem; margin: 0 0 var(--space-4); padding: var(--space-4); border: 1px solid var(--border-accent); border-radius: var(--radius-panel); background: var(--surface-selected); overflow-wrap: anywhere; }
+.unread-summary h4, .unread-summary h5 { margin: 0 0 var(--space-2); }
+.unread-summary h5 { margin-top: var(--space-3); }
+.unread-summary p { margin: var(--space-2) 0; }
+.unread-summary ul { margin: var(--space-2) 0; padding-left: var(--space-5); }
+.unread-summary li { margin-bottom: var(--space-1); }
+.summary-boundary { color: var(--text-secondary); font-size: .8rem; }
 .history-notice { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-item); background: var(--surface-item); }
 .history-notice--error, .history-notice--access { color: var(--status-danger); background: var(--surface-status-danger); }
 .message-empty { max-width: 24rem; margin: min(12vh, var(--space-10)) auto; padding: var(--space-8) var(--space-5); text-align: center; border: 1px dashed var(--border-control); border-radius: var(--radius-panel); color: var(--text-secondary); }
