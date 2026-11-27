@@ -100,6 +100,13 @@ jobs:
           PRODUCTION_DB_CONNECTION_STRING: Host=host.docker.internal;Port=5432;Database=deployment_smoke;Username=deployment_test;Password=deployment_test_only
           PRODUCTION_KEY_BIND_PATH: ${{ runner.temp }}/apothiki-keys
         run: npm run test:e2e:production
+      - name: Preserve production browser trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-browser-failure
+          path: frontend/test-results-production/
+          retention-days: 7
       - name: Show container logs on failure
         if: failure()
         run: docker logs apothiki-smoke || true

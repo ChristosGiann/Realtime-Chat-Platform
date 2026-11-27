@@ -49,6 +49,8 @@ Create one service from the Dockerfile, a managed PostgreSQL service, and a pers
 
 Keep the PostgreSQL service private to the project. Railway's private network is encrypted in transit; if using an external managed database, require its supported TLS mode and verify certificate behavior in the connection string. Give the application a dedicated database role with only the necessary permissions, and protect the migration role separately if schema ownership requires elevated rights. Do not enable a public database endpoint solely for this application.
 
+Npgsql 10 may print `Cannot load library libgssapi_krb5.so.2` in the minimal .NET runtime image. [Npgsql documents this as a harmless GSSAPI probe](https://www.npgsql.org/doc/security?tabs=tabid-1) when PostgreSQL password authentication succeeds; it does not require installing Kerberos in this topology. If the database does not use GSSAPI, `GSS Encryption Mode=Disable` in the managed connection string suppresses the probe. Keep the chosen PostgreSQL TLS mode independent of this setting.
+
 Run the `migrations` target as a **separate, one-off job** against the same managed database before switching the application to a new image. The job needs the connection string but no public domain. Check its exit status. Do not put migration commands in the application startup command. Configure `/health/live` for liveness and `/health/ready` for PostgreSQL readiness. `/health/realtime` reports optional Redis connectivity and is not a readiness gate here.
 
 ## HTTPS, cookies and proxy trust
