@@ -111,8 +111,9 @@ test('packaged same-origin app keeps secure session, CSRF, SignalR and durable c
       await page.reload(); await bobPage.reload()
       expect((await page.request.get('/api/auth/me')).status()).toBe(200)
       expect((await bobPage.request.get('/api/auth/me')).status()).toBe(200)
-      await expect(bobPage.getByText(body, { exact: true })).toBeVisible()
       await recoverConversationScreen(page, conversationId, testInfo)
+      await recoverConversationScreen(bobPage, conversationId, testInfo)
+      await expect(bobPage.getByText(body, { exact: true })).toBeVisible()
     }
     if (process.env.PRODUCTION_DOCKER_REDEPLOY === 'true') {
       const connection = process.env.PRODUCTION_DB_CONNECTION_STRING
@@ -133,8 +134,9 @@ test('packaged same-origin app keeps secure session, CSRF, SignalR and durable c
       await page.reload(); await bobPage.reload()
       expect((await page.request.get('/api/auth/me')).status()).toBe(200)
       expect((await bobPage.request.get('/api/auth/me')).status()).toBe(200)
-      await expect(bobPage.getByText(body, { exact: true })).toBeVisible()
       await recoverConversationScreen(page, conversationId, testInfo)
+      await recoverConversationScreen(bobPage, conversationId, testInfo)
+      await expect(bobPage.getByText(body, { exact: true })).toBeVisible()
     }
     await bobPage.getByRole('region', { name: 'Μηνύματα συνομιλίας' }).getByRole('button', { name: 'Σήμανση ιστορικού ως αναγνωσμένου' }).click()
     await expect(page.getByLabel('Κατάσταση μηνύματος')).toHaveText('Read')
