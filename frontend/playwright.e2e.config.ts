@@ -15,6 +15,6 @@ export default defineConfig({
     { command: 'node scripts/start-e2e-api.mjs', url: 'http://localhost:5080/health/ready', timeout: 180000,
       env: { ConnectionStrings__ChatDatabase: connection, ASPNETCORE_ENVIRONMENT: 'Development', DOTNET_ENVIRONMENT: 'Development',
         UnreadSummaries__Enabled: 'true', UnreadSummaries__BaseUrl: 'http://127.0.0.1:11435', UnreadSummaries__Model: 'test-only' } },
-    { command: 'npm run preview -- --host localhost --port 5173 --strictPort', url: 'http://localhost:5173' },
+    { command: 'npm run dev -- --host localhost --port 5173 --strictPort', url: 'http://localhost:5173' },
   ],
 })
