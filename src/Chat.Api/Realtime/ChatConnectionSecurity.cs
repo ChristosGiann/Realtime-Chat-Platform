@@ -2,6 +2,7 @@ namespace Chat.Api.Realtime;
 
 public sealed class ChatOrigins(IConfiguration configuration, IHostEnvironment environment)
 {
+    private readonly string? publicOrigin = configuration["Deployment:PublicOrigin"]?.TrimEnd('/');
     public string[] AllowedOrigins { get; } = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
         ?? (environment.IsDevelopment() ? ["http://localhost:5173"] : []);
     public bool Allows(HttpRequest request)
@@ -10,6 +11,7 @@ public sealed class ChatOrigins(IConfiguration configuration, IHostEnvironment e
         if (origins.Count != 1) return false;
         var origin = origins[0];
         return string.Equals(origin, $"{request.Scheme}://{request.Host}", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(origin, publicOrigin, StringComparison.OrdinalIgnoreCase)
             || AllowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase);
     }
 }

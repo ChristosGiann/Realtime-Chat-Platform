@@ -87,7 +87,7 @@ Browser tests need Playwright Chromium (`npx playwright install chromium` from `
 
 ## Deployment status and limits
 
-Apothiki is locally runnable and has automated multi-instance verification; it has **not** been publicly deployed as a production service. A deployment needs shared PostgreSQL and Redis, applied EF migrations, persistent shared Data Protection keys, a unique server instance ID per API process, HTTPS/WSS, configured CORS/origin rules, and load-balancer affinity where SignalR negotiation requires it. Compatible instances must share a controlled Redis namespace. Health endpoints and degraded behavior are documented in the [production handoff](docs/stage6-production-handoff.md).
+Apothiki is locally runnable and has automated multi-instance verification; it has **not** been publicly deployed as a production service. The [v1 deployment guide](docs/deployment.md) covers the initial single-instance Docker image, managed PostgreSQL, separate EF migrations, persistent Data Protection keys, HTTPS/WSS, Railway configuration, health checks and rollback. Redis and Ollama stay disabled in that topology. For a later multi-instance deployment, see the [Stage 6 handoff](docs/stage6-production-handoff.md).
 
 Redis or network interruption can lose live events while committed messages and receipt progress remain in PostgreSQL. REST recovery is required. There is no outbox, durable realtime replay, production load benchmark, or Redis HA topology in this repository. Dependency audit warnings, including frontend npm advisories and a transitive `Microsoft.OpenApi 2.0.0` advisory, remain known items rather than a claim of a clean security audit.
 
@@ -100,8 +100,8 @@ Redis or network interruption can lose live events while committed messages and 
 | [`tests/`](tests/) | Backend tests, including PostgreSQL/Redis integration coverage |
 | [`docs/`](docs/) | Design decisions, verification and operational notes |
 
-Start with the [Apothiki design system](docs/apothiki-design-system.md), [Stage 5 semantics](docs/stage5-semantics.md), [reconnect/REST recovery](docs/signalr-reconnect.md), [AI unread summaries](docs/ai-unread-summaries.md), and [Stage 6 production handoff](docs/stage6-production-handoff.md).
+Start with the [Apothiki design system](docs/apothiki-design-system.md), [Stage 5 semantics](docs/stage5-semantics.md), [reconnect/REST recovery](docs/signalr-reconnect.md), [AI unread summaries](docs/ai-unread-summaries.md), [v1 deployment](docs/deployment.md), and [Stage 6 production handoff](docs/stage6-production-handoff.md).
 
 ## Roadmap
 
-Public deployment is future work. Android and push-notification work is tracked separately in the [#124–#130 roadmap](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/124).
+The v1 deployment package is prepared but public deployment remains future work. Android and push-notification work is tracked separately in the [#124–#130 roadmap](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/124).
