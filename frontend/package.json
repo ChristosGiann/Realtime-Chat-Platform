@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test:ui": "playwright test",
     "test:e2e": "playwright test --config playwright.e2e.config.ts",
-    "test:e2e:stage6": "playwright test --config playwright.stage6.config.ts"
+    "test:e2e:stage6": "playwright test --config playwright.stage6.config.ts",
+    "test:e2e:production": "playwright test --config playwright.production.config.ts"
   },
   "dependencies": {
     "@microsoft/signalr": "10.0.11",

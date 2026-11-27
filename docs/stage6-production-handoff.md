@@ -15,7 +15,7 @@
 | #102 | [Failure, restart, REST recovery και lock contention verification](stage6-failure-verification.md) |
 | #103 | Πραγματικά browser contexts σε δύο ξεχωριστές API διεργασίες και τελική regression/production handoff επαλήθευση. |
 
-Το [#88 AI unread summaries](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/88) παραμένει deferred και δεν αποτελεί μέρος του Stage 6.
+Το [#88 AI unread summaries](https://github.com/ChristosGiann/Realtime-Chat-Platform/issues/88) υλοποιήθηκε αργότερα και είναι προαιρετικό· παραμένει απενεργοποιημένο στην αρχική [v1 τοπολογία](deployment.md).
 
 ## Απαιτούμενη deployment τοπολογία
 
@@ -83,6 +83,6 @@ npm run test:e2e:stage6
 - Redis Pub/Sub και SignalR δεν παρέχουν exactly-once delivery, durable replay ή client observation ACK. Ένα event μπορεί να χαθεί κατά outage/reconnect· το REST resync είναι υποχρεωτικό.
 - Ήδη enqueued bytes δεν ανακαλούνται. Idle sockets δεν ανιχνεύουν ακαριαία κάθε administrative Identity deletion/security-stamp change· η επόμενη protected operation επανελέγχει την ισχύ της session.
 - Οι automated δοκιμές καλύπτουν API process kill, όχι πραγματική δικτυακή partition ή divergent writable Redis split brain. Αυτά χρειάζονται ελεγχόμενη deployment validation. Autoscaling infrastructure, production capacity/load test και Redis HA topology δεν παρέχονται από το repository.
-- Το #88 παραμένει deferred. Δεν υπάρχει outbox/exactly-once ή durable SignalR replay στο Stage 6.
+- Το #88 είναι προαιρετικό και απενεργοποιημένο στην αρχική v1 τοπολογία. Δεν υπάρχει outbox/exactly-once ή durable SignalR replay στο Stage 6.
 
 Με επιτυχή Release backend, frontend/UI, παλιά και νέα browser E2E, καθαρό EF model και πράσινο CI, το #103 πληροί το core Stage 6 acceptance contract. Το parent #95 μπορεί να αξιολογηθεί για closure **μετά** το review και merge του #103· δεν κλείνει από αυτό το PR.

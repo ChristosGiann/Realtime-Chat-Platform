@@ -491,4 +491,5 @@ frontend/dist/
 frontend/.env.local
 # Browser test artifacts
 frontend/test-results/
+frontend/test-results-production/
 frontend/playwright-report/

@@ -19,6 +19,103 @@ permissions:
   contents: read
 
 jobs:
+  production-image:
+    name: Production Docker image and startup
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: deployment_smoke
+          POSTGRES_USER: deployment_test
+          POSTGRES_PASSWORD: deployment_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U deployment_test -d deployment_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build migration and runtime images
+        run: |
+          docker build --target migrations -t apothiki-migrations:ci .
+          docker build -t apothiki:ci .
+      - name: Apply migrations separately
+        run: |
+          docker run --rm --network host \
+            -e 'ConnectionStrings__ChatDatabase=Host=127.0.0.1;Port=5432;Database=deployment_smoke;Username=deployment_test;Password=deployment_test_only' \
+            apothiki-migrations:ci
+      - name: Start non-root image on dynamic port and check routes
+        run: |
+          docker network create apothiki-smoke-net
+          mkdir -p "$RUNNER_TEMP/apothiki-keys"
+          sudo chown root:root "$RUNNER_TEMP/apothiki-keys"
+          sudo chmod 700 "$RUNNER_TEMP/apothiki-keys"
+          docker run -d --name apothiki-smoke --user 0 --network apothiki-smoke-net -p 8090:8090 \
+            --add-host=host.docker.internal:host-gateway \
+            -e PORT=8090 \
+            -e Deployment__RailwayEdgeMode=true \
+            -e Deployment__PublicOrigin=https://localhost:8443 \
+            -e 'ConnectionStrings__ChatDatabase=Host=host.docker.internal;Port=5432;Database=deployment_smoke;Username=deployment_test;Password=deployment_test_only' \
+            -e SharedDataProtection__KeyRingPath=/keys \
+            -e SharedDataProtection__ApplicationName=apothiki-v1 \
+            -v "$RUNNER_TEMP/apothiki-keys:/keys" \
+            apothiki:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:8090/health/ready; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8090/health/live
+          curl -fsS http://localhost:8090/health/ready
+          curl -fsS http://localhost:8090/ | grep -q 'Apothiki'
+          curl -fsS http://localhost:8090/conversations | grep -q 'Apothiki'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8090/api/unknown-route)" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8090/hubs/chat/negotiate)" = 401
+          test "$(docker exec apothiki-smoke cat /proc/1/status | awk '/^Uid:/ {print $2}')" = 1654
+          docker run -d --name apothiki-smoke-proxy --network apothiki-smoke-net -p 8443:8443 \
+            -v "$PWD/tests/deployment/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine
+          for attempt in $(seq 1 30); do
+            if curl -kfsS https://localhost:8443/health/ready; then break; fi
+            sleep 2
+          done
+          curl -kfsS https://localhost:8443/health/ready
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install production browser test dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Verify same-origin auth, realtime, receipts and session restart
+        working-directory: frontend
+        env:
+          PRODUCTION_BASE_URL: https://localhost:8443
+          PRODUCTION_DOCKER_CONTAINER: apothiki-smoke
+          PRODUCTION_DOCKER_REDEPLOY: "true"
+          PRODUCTION_DB_CONNECTION_STRING: Host=host.docker.internal;Port=5432;Database=deployment_smoke;Username=deployment_test;Password=deployment_test_only
+          PRODUCTION_KEY_BIND_PATH: ${{ runner.temp }}/apothiki-keys
+        run: npm run test:e2e:production
+      - name: Preserve production browser trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-browser-failure
+          path: frontend/test-results-production/
+          retention-days: 7
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs apothiki-smoke || true
+      - name: Stop smoke container
+        if: always()
+        run: |
+          docker rm -f apothiki-smoke-proxy || true
+          docker rm -f apothiki-smoke || true
+
   backend:
     name: Backend build and tests
     runs-on: ubuntu-latest
